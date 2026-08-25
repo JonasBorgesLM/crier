@@ -1,0 +1,165 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same ref makes the in-flight run obsolete.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.24"
+
+jobs:
+  # The repository is multi-module (ADR-0003), so a green root build does not
+  # imply a green submodule build. Every job below fans out over the modules
+  # rather than running once at the root.
+  discover:
+    name: Discover modules
+    runs-on: ubuntu-latest
+    outputs:
+      modules: ${{ steps.find.outputs.modules }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: find
+        run: |
+          modules=$(find . -name go.mod -not -path './.git/*' \
+            -exec dirname {} \; | sed 's|^\./||' | sort | jq -R . | jq -sc .)
+          echo "modules=$modules" >> "$GITHUB_OUTPUT"
+          echo "Discovered: $modules"
+
+  test:
+    name: test (${{ matrix.module }})
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ${{ fromJSON(needs.discover.outputs.modules) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.module }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+
+      - name: go build
+        run: go build ./...
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Verify formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt needed on:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: Verify go.mod is tidy
+        run: |
+          cp go.mod go.mod.bak
+          [ -f go.sum ] && cp go.sum go.sum.bak
+          go mod tidy
+          if ! diff -q go.mod go.mod.bak >/dev/null; then
+            echo "::error::go.mod is not tidy — run 'go mod tidy' in ${{ matrix.module }}"
+            diff go.mod.bak go.mod || true
+            exit 1
+          fi
+
+      - name: go test
+        run: go test -race -shuffle=on -coverprofile=coverage.out -covermode=atomic ./...
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ strategy.job-index }}
+          path: ${{ matrix.module }}/coverage.out
+          if-no-files-found: ignore
+
+  # NFR1: core must stay free of third-party runtime dependencies. Left to
+  # review, this erodes one convenient import at a time.
+  core-has-no-third-party-deps:
+    name: core has no third-party deps
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: core/go.sum
+      - name: Assert empty require block
+        working-directory: core
+        run: |
+          deps=$(go list -deps -f '{{if not .Standard}}{{.ImportPath}}{{end}}' ./... \
+                 | grep -v '^github.com/JonasBorgesLM/crier/' || true)
+          if [ -n "$deps" ]; then
+            echo "::error::core gained third-party dependencies (NFR1):"
+            echo "$deps"; exit 1
+          fi
+          echo "core depends only on the standard library."
+
+  lint:
+    name: lint (${{ matrix.module }})
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ${{ fromJSON(needs.discover.outputs.modules) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: ${{ matrix.module }}
+
+  govulncheck:
+    name: govulncheck (${{ matrix.module }})
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ${{ fromJSON(needs.discover.outputs.modules) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+      - name: Run govulncheck
+        working-directory: ${{ matrix.module }}
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+  # A single required check to protect the branch with, so adding a module
+  # never silently widens the gap between "CI passed" and "everything ran".
+  ci-ok:
+    name: CI OK
+    if: always()
+    needs: [test, lint, govulncheck, core-has-no-third-party-deps]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any dependency failed
+        run: |
+          results='${{ join(needs.*.result, " ") }}'
+          echo "Upstream results: $results"
+          for r in $results; do
+            [ "$r" = "success" ] || { echo "::error::a required job did not succeed"; exit 1; }
+          done
