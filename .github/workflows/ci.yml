@@ -52,7 +52,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: ${{ matrix.module }}/go.sum
+          cache-dependency-path: ${{ matrix.module }}/go.mod
 
       - name: go build
         run: go build ./...
@@ -70,7 +70,7 @@ jobs:
       - name: Verify go.mod is tidy
         run: |
           cp go.mod go.mod.bak
-          [ -f go.sum ] && cp go.sum go.sum.bak
+          if [ -f go.sum ]; then cp go.sum go.sum.bak; fi
           go mod tidy
           if ! diff -q go.mod go.mod.bak >/dev/null; then
             echo "::error::go.mod is not tidy — run 'go mod tidy' in ${{ matrix.module }}"
@@ -97,7 +97,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: core/go.sum
+          cache-dependency-path: core/go.mod
       - name: Assert empty require block
         working-directory: core
         run: |
@@ -122,10 +122,12 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: ${{ matrix.module }}/go.sum
-      - uses: golangci/golangci-lint-action@v6
+          cache-dependency-path: ${{ matrix.module }}/go.mod
+      # v8 is the line that runs golangci-lint v2 — v6 installs v1, which
+      # rejects .golangci.yml's `version: "2"` schema outright.
+      - uses: golangci/golangci-lint-action@v8
         with:
-          version: latest
+          version: v2.12.2
           working-directory: ${{ matrix.module }}
 
   govulncheck:
@@ -141,7 +143,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: ${{ matrix.module }}/go.sum
+          cache-dependency-path: ${{ matrix.module }}/go.mod
       - name: Run govulncheck
         working-directory: ${{ matrix.module }}
         run: |
