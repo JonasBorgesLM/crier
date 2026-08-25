@@ -158,7 +158,7 @@ jobs:
     steps:
       - name: Fail if any dependency failed
         run: |
-          results='${{ join(needs.*.result, " ") }}'
+          results='${{ join(needs.*.result, ' ') }}'
           echo "Upstream results: $results"
           for r in $results; do
             [ "$r" = "success" ] || { echo "::error::a required job did not succeed"; exit 1; }
