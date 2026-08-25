@@ -82,6 +82,12 @@ type Metrics interface {
 	// the event (ADR-0010).
 	AttributeTruncated(key string)
 
+	// AttributeDropped counts attributes removed outright — the record was
+	// over the attribute-count cap, or the key itself was longer than the key
+	// cap. Kept apart from AttributeTruncated because losing a field is a
+	// different event from shortening one (ADR-0010).
+	AttributeDropped(key string)
+
 	// CardinalityCapped counts values replaced because the key exceeded its
 	// distinct-value threshold (ADR-0010).
 	CardinalityCapped(key string)
@@ -150,6 +156,9 @@ func (NopMetrics) BufferDepth(int) {}
 
 // AttributeTruncated implements [Metrics] and counts nothing.
 func (NopMetrics) AttributeTruncated(string) {}
+
+// AttributeDropped implements [Metrics] and counts nothing.
+func (NopMetrics) AttributeDropped(string) {}
 
 // CardinalityCapped implements [Metrics] and counts nothing.
 func (NopMetrics) CardinalityCapped(string) {}

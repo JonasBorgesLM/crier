@@ -47,6 +47,7 @@ type Snapshot struct {
 	ExportLatency         map[string]LatencyStat
 	BufferDepth           int
 	AttributesTruncated   map[string]int64
+	AttributesDropped     map[string]int64
 	CardinalityCapped     map[string]int64
 	IdentityDiscrepancies map[string]int64
 	TimestampMissing      map[string]int64
@@ -102,6 +103,7 @@ type CountingMetrics struct {
 	exportLatency         map[string]LatencyStat
 	bufferDepth           int
 	attributesTruncated   map[string]int64
+	attributesDropped     map[string]int64
 	cardinalityCapped     map[string]int64
 	identityDiscrepancies map[string]int64
 	timestampMissing      map[string]int64
@@ -144,6 +146,7 @@ func (m *CountingMetrics) init() {
 	m.openCircuits = make(map[string]bool)
 	m.exportLatency = make(map[string]LatencyStat)
 	m.attributesTruncated = make(map[string]int64)
+	m.attributesDropped = make(map[string]int64)
 	m.cardinalityCapped = make(map[string]int64)
 	m.identityDiscrepancies = make(map[string]int64)
 	m.timestampMissing = make(map[string]int64)
@@ -235,6 +238,14 @@ func (m *CountingMetrics) AttributeTruncated(key string) {
 	m.attributesTruncated[label(m, m.attributesTruncated, key)]++
 }
 
+// AttributeDropped implements Metrics.
+func (m *CountingMetrics) AttributeDropped(key string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.init()
+	m.attributesDropped[label(m, m.attributesDropped, key)]++
+}
+
 // CardinalityCapped implements Metrics.
 func (m *CountingMetrics) CardinalityCapped(key string) {
 	m.mu.Lock()
@@ -294,6 +305,7 @@ func (m *CountingMetrics) Snapshot() Snapshot {
 		ExportLatency:         cloneMap(m.exportLatency),
 		BufferDepth:           m.bufferDepth,
 		AttributesTruncated:   cloneMap(m.attributesTruncated),
+		AttributesDropped:     cloneMap(m.attributesDropped),
 		CardinalityCapped:     cloneMap(m.cardinalityCapped),
 		IdentityDiscrepancies: cloneMap(m.identityDiscrepancies),
 		TimestampMissing:      cloneMap(m.timestampMissing),
