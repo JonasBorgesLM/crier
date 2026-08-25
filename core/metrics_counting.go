@@ -49,6 +49,7 @@ type Snapshot struct {
 	AttributesTruncated   map[string]int64
 	CardinalityCapped     map[string]int64
 	IdentityDiscrepancies map[string]int64
+	TimestampMissing      map[string]int64
 	ClockSkew             map[string]LatencyStat
 	DeprecatedWireVersion map[string]int64
 }
@@ -103,6 +104,7 @@ type CountingMetrics struct {
 	attributesTruncated   map[string]int64
 	cardinalityCapped     map[string]int64
 	identityDiscrepancies map[string]int64
+	timestampMissing      map[string]int64
 	clockSkew             map[string]LatencyStat
 	deprecatedWireVersion map[string]int64
 }
@@ -144,6 +146,7 @@ func (m *CountingMetrics) init() {
 	m.attributesTruncated = make(map[string]int64)
 	m.cardinalityCapped = make(map[string]int64)
 	m.identityDiscrepancies = make(map[string]int64)
+	m.timestampMissing = make(map[string]int64)
 	m.clockSkew = make(map[string]LatencyStat)
 	m.deprecatedWireVersion = make(map[string]int64)
 }
@@ -250,6 +253,14 @@ func (m *CountingMetrics) IdentityDiscrepancy(_, actual string) {
 	m.identityDiscrepancies[label(m, m.identityDiscrepancies, actual)]++
 }
 
+// TimestampMissing implements Metrics.
+func (m *CountingMetrics) TimestampMissing(source string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.init()
+	m.timestampMissing[label(m, m.timestampMissing, source)]++
+}
+
 // ClockSkew implements Metrics.
 func (m *CountingMetrics) ClockSkew(source string, deviation time.Duration) {
 	if deviation < 0 {
@@ -285,6 +296,7 @@ func (m *CountingMetrics) Snapshot() Snapshot {
 		AttributesTruncated:   cloneMap(m.attributesTruncated),
 		CardinalityCapped:     cloneMap(m.cardinalityCapped),
 		IdentityDiscrepancies: cloneMap(m.identityDiscrepancies),
+		TimestampMissing:      cloneMap(m.timestampMissing),
 		ClockSkew:             cloneMap(m.clockSkew),
 		DeprecatedWireVersion: cloneMap(m.deprecatedWireVersion),
 	}

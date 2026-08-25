@@ -92,6 +92,14 @@ type Metrics interface {
 	// count is either a misconfigured client or someone probing.
 	IdentityDiscrepancy(claimed, actual string)
 
+	// TimestampMissing counts records that asserted no Timestamp at all.
+	//
+	// Kept apart from ClockSkew deliberately: an absent timestamp is not a
+	// clock that is wrong by the distance to the zero time, and folding it in
+	// would swamp the skew statistic with a meaningless outlier. Both are
+	// accepted, both are visible, neither is guessed at (ADR-0009).
+	TimestampMissing(source string)
+
 	// ClockSkew observes how far a source's asserted Timestamp sat from the
 	// ObservedTimestamp. Skew never rejects a record (ADR-0009); it is
 	// reported so a source with a broken clock is discoverable.
@@ -148,6 +156,9 @@ func (NopMetrics) CardinalityCapped(string) {}
 
 // IdentityDiscrepancy implements [Metrics] and counts nothing.
 func (NopMetrics) IdentityDiscrepancy(string, string) {}
+
+// TimestampMissing implements [Metrics] and counts nothing.
+func (NopMetrics) TimestampMissing(string) {}
 
 // ClockSkew implements [Metrics] and observes nothing.
 func (NopMetrics) ClockSkew(string, time.Duration) {}
