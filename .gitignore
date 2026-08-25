@@ -30,3 +30,9 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# macOS
+.DS_Store
+
+# Compiled daemon: `go build ./...` inside cmd/crierd writes it there
+/cmd/crierd/crierd
