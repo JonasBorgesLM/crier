@@ -33,3 +33,6 @@ go.work.sum
 
 # macOS
 .DS_Store
+
+# Compiled daemon: `go build ./...` inside cmd/crierd writes it there
+/cmd/crierd/crierd
