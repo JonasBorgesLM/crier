@@ -97,7 +97,7 @@ func TestDispatcherDrainsTheBufferToTheExporter(t *testing.T) {
 	d.Start(context.Background())
 	enqueue(t, buf, "task-api", 10)
 
-	if err := d.Shutdown(context.Background()); err != nil {
+	if _, err := d.Shutdown(context.Background()); err != nil {
 		t.Fatalf("Shutdown: %v", err)
 	}
 
@@ -144,7 +144,7 @@ func TestDispatcherCountsOnlyBatchesThatReachedNowhere(t *testing.T) {
 			d.Start(context.Background())
 			enqueue(t, buf, "task-api", 4)
 			enqueue(t, buf, "gateway-auth", 2)
-			if err := d.Shutdown(context.Background()); err != nil {
+			if _, err := d.Shutdown(context.Background()); err != nil {
 				t.Fatalf("Shutdown: %v", err)
 			}
 
@@ -293,7 +293,7 @@ func TestDispatcherBoundsBatchesInFlight(t *testing.T) {
 	}
 
 	close(release)
-	if err := d.Shutdown(context.Background()); err != nil {
+	if _, err := d.Shutdown(context.Background()); err != nil {
 		t.Fatalf("Shutdown: %v", err)
 	}
 }
@@ -316,7 +316,7 @@ func TestDispatcherShutdownTimeoutCountsWhatItLost(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	err := d.Shutdown(ctx)
+	_, err := d.Shutdown(ctx)
 
 	if err == nil {
 		t.Fatal("Shutdown succeeded, want the expired drain reported")
@@ -340,7 +340,7 @@ func TestDispatcherShutdownWithoutStartCountsNothing(t *testing.T) {
 	d := mustDispatcher(t, DispatcherConfig{Buffer: buf, Exporter: &fakeExporter{}, Metrics: &m})
 
 	enqueue(t, buf, "task-api", 3)
-	if err := d.Shutdown(context.Background()); err != nil {
+	if _, err := d.Shutdown(context.Background()); err != nil {
 		t.Fatalf("Shutdown: %v", err)
 	}
 	if got := m.Snapshot().TotalDropped(); got != 0 {
@@ -355,7 +355,7 @@ func TestDispatcherSurfacesAnUnexpectedStoreFailure(t *testing.T) {
 	d := mustDispatcher(t, DispatcherConfig{Buffer: buf, Exporter: &fakeExporter{}, Workers: 1})
 
 	d.Start(context.Background())
-	err := d.Shutdown(context.Background())
+	_, err := d.Shutdown(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "disk on fire") {
 		t.Errorf("Shutdown error = %v, want the store failure surfaced", err)
 	}

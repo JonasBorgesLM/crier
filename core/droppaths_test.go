@@ -98,7 +98,7 @@ func dropScenarios() map[DropReason]func(*testing.T, *dropRecorder) {
 					t.Fatalf("Enqueue: %v", err)
 				}
 			}
-			if err := d.Shutdown(context.Background()); err != nil {
+			if _, err := d.Shutdown(context.Background()); err != nil {
 				t.Fatalf("Shutdown: %v", err)
 			}
 		},
@@ -127,7 +127,7 @@ func dropScenarios() map[DropReason]func(*testing.T, *dropRecorder) {
 
 			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 			defer cancel()
-			if err := d.Shutdown(ctx); err == nil {
+			if _, err := d.Shutdown(ctx); err == nil {
 				t.Fatal("Shutdown succeeded, want the expired drain reported")
 			}
 		},

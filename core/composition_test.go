@@ -218,3 +218,41 @@ type noopExporter struct{}
 
 func (noopExporter) Export(context.Context, []LogRecord) error { return nil }
 func (noopExporter) Shutdown(context.Context) error            { return nil }
+
+// ExampleNew shows the embedded engine: the same pipeline and export layer the
+// daemon runs, with no receiver, because the host application calls it
+// directly and owns the trust boundary itself.
+func ExampleNew() {
+	crier, err := New(Options{
+		ServiceName:    "task-api",
+		ServiceVersion: "1.4.0",
+		Exporters:      map[string]Exporter{"primary": noopExporter{}},
+
+		// Limits apply here exactly as they do to the HTTP receiver: a bug in
+		// the host produces the same unbounded attribute map as a malicious
+		// client (ADR-0010).
+		Limits: Limits{MaxAttributes: 64},
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	if logErr := crier.Log(context.Background(), LogRecord{
+		Severity:   SeverityError,
+		Body:       "database unreachable",
+		Attributes: map[string]any{"attempt": 3},
+	}); logErr != nil {
+		panic(logErr)
+	}
+
+	// Loss at shutdown is permitted; silent loss is not, so the drain reports
+	// what it did (ADR-0015).
+	summary, err := crier.Shutdown(context.Background())
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("clean drain:", summary.Clean())
+
+	// Output:
+	// clean drain: true
+}
