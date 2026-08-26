@@ -44,3 +44,15 @@ Compatibility policy within a major version:
 - The deprecation metric gives a concrete, defensible criterion for removing
   an old version, which is the kind of operational reasoning worth making
   visible in the README.
+
+## Amendment (ADR-0021)
+Two things this ADR leaves implicit are settled in
+[ADR-0021](0021-wire-contract-edges.md):
+
+- **"Unknown fields are rejected" has an exception.** `encoding/json` matches
+  field names without regard to case, so `servicename` is accepted as
+  `serviceName`. Accepted deliberately: the failure this policy exists to
+  prevent is a field that silently does nothing, and a misspelling that still
+  reaches its intended field loses no data.
+- **The response body is inside the contract**, under these same rules, except
+  for the text of its `reason` field, which is diagnostic prose.

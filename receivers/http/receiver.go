@@ -88,6 +88,11 @@ func (rc *Receiver) Mux() http.Handler {
 
 // ingestResponse is what a caller gets back.
 //
+// It is part of the versioned wire contract (ADR-0021): adding a field is
+// backwards-compatible, renaming or retyping one needs a new path version. The
+// exception is the text of Reason, which is diagnostic prose — a client that
+// branches on its wording depends on something no version promises.
+//
 // Both numbers are reported because a batch can be partly accepted, and a
 // caller that re-sends the whole batch on a partial rejection duplicates the
 // part that was already taken.

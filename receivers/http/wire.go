@@ -96,12 +96,12 @@ func badRequest(field, format string, args ...any) *BadRequestError {
 // unusable records; the mistake should surface at integration time, when
 // someone is looking.
 //
-// One limit of that strictness is worth stating rather than discovering:
+// One limit of that strictness is decided rather than accidental:
 // encoding/json matches field names without regard to case, so "servicename"
-// is accepted as "serviceName". It is left that way. The failure ADR-0012
-// targets is a field that silently does nothing — a misspelling that maps to
-// the intended field loses no data, and rejecting it would mean decoding
-// twice to enforce a spelling the format never promised to police.
+// is accepted as "serviceName". The failure ADR-0012 targets is a field that
+// silently does nothing, and a misspelling that still reaches its intended
+// field loses no data. Recorded in ADR-0021, which amends ADR-0012 with the
+// exception.
 func decodeV1(body io.Reader, observed time.Time) ([]core.LogRecord, error) {
 	dec := json.NewDecoder(body)
 	dec.DisallowUnknownFields()
