@@ -19,16 +19,21 @@ env:
   # what proves the promise holds — a module that quietly needs something newer
   # fails these jobs.
   GO_VERSION: "1.24"
-  # NFR2's second policy. Go 1.24 is past its support window, so its final
-  # release carries standard-library vulnerabilities whose fixes only ever
-  # shipped in later lines. Scanning at the floor reports findings no change
-  # here can resolve, and a check that cannot go green stops being read.
+  # NFR2's second policy: the toolchain command modules are built with, and the
+  # one vulnerabilities are scanned against.
   #
-  # This is not a floor in disguise: a library's floor says who may import it,
-  # and consumers compile with their own toolchain. What ships to a user is the
-  # daemon, and the toolchain that builds it is the standard library inside it.
-  # Issue #44 tracks putting cmd/crierd's own build on this version too.
-  GO_SCAN_VERSION: "stable"
+  # This is not a floor in disguise. A library's floor says who may import it,
+  # and consumers compile the code with their own toolchain — so core and the
+  # exporters stay at GO_VERSION above. A binary is the opposite: nobody
+  # imports it, and the toolchain that builds it is the standard library that
+  # ships inside it, which makes it part of what is distributed.
+  #
+  # Scanning follows the same version for a related reason. Go 1.24 is past its
+  # support window, so its final release carries standard-library
+  # vulnerabilities whose fixes only ever shipped in later lines; scanning at
+  # the floor reports findings no change here can resolve, and a check that
+  # cannot go green stops being read.
+  GO_SUPPORTED_VERSION: "stable"
 
 jobs:
   # The repository is multi-module (ADR-0003), so a green root build does not
@@ -62,10 +67,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Which of NFR2's two policies this module falls under. Command modules
+      # build on the supported toolchain because that toolchain is the standard
+      # library shipped inside the binary; everything else builds at the floor
+      # it promises importers, which is what proves the promise still holds.
       - uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version: ${{ startsWith(matrix.module, 'cmd/') && env.GO_SUPPORTED_VERSION || env.GO_VERSION }}
           cache-dependency-path: ${{ matrix.module }}/go.mod
+
+      - name: Report the toolchain in use
+        run: |
+          echo "${{ matrix.module }} is built with $(go version)"
 
       - name: go build
         run: go build ./...
@@ -216,8 +229,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          # Deliberately not GO_VERSION — see the comment on GO_SCAN_VERSION.
-          go-version: ${{ env.GO_SCAN_VERSION }}
+          # Deliberately not GO_VERSION — see GO_SUPPORTED_VERSION above.
+          go-version: ${{ env.GO_SUPPORTED_VERSION }}
           cache-dependency-path: ${{ matrix.module }}/go.mod
       - name: Run govulncheck
         working-directory: ${{ matrix.module }}
