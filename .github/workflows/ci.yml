@@ -135,6 +135,51 @@ jobs:
         working-directory: exporters/otlp/integration
         run: go test -tags=integration -race -shuffle=on -timeout 20m ./...
 
+  # ADR-0018: the OTLP exporter uses the slim proto module, because the
+  # canonical one ships its gRPC service stubs in the same package as the
+  # request message — so importing the message pulls in google.golang.org/grpc,
+  # which declares go 1.25.0 and lifts a library module above the floor NFR2
+  # asks it to promise.
+  #
+  # Both modules expose the same type names, so one changed import line reverts
+  # that with nothing on screen to say why. A comment does not survive a
+  # refactor; this does.
+  no-grpc-in-libraries:
+    name: library modules do not depend on gRPC
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [core, exporters/otlp]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: ${{ matrix.module }}/go.mod
+      - name: Assert gRPC is absent from the module graph
+        working-directory: ${{ matrix.module }}
+        run: |
+          # The module graph rather than the import list: a require line is
+          # enough to constrain version selection and drag the floor up,
+          # whether or not any package imports it yet.
+          #
+          # Resolved into a variable first so that a failure of `go mod graph`
+          # itself aborts the step. Piped straight into grep, a broken module
+          # would exit 1 for "no match" and read as a pass.
+          graph=$(go mod graph)
+          if edges=$(printf '%s\n' "$graph" | grep -F 'google.golang.org/grpc'); then
+            echo "::error::${{ matrix.module }} depends on google.golang.org/grpc, which ADR-0018 forbids in a library module."
+            echo "It declares go 1.25.0, so it raises this module above the Go 1.24 floor NFR2 promises to consumers."
+            echo "If this came from switching go.opentelemetry.io/proto/slim/otlp to go.opentelemetry.io/proto/otlp,"
+            echo "switch it back: the slim variant is the same generated types without the gRPC service stubs."
+            echo "See docs/adr/0018-otlp-slim-module.md."
+            echo "Offending edges:"
+            echo "$edges"
+            exit 1
+          fi
+          echo "${{ matrix.module }} has no gRPC in its module graph."
+
   lint:
     name: lint (${{ matrix.module }})
     needs: discover
@@ -182,7 +227,7 @@ jobs:
   ci-ok:
     name: CI OK
     if: always()
-    needs: [test, integration, lint, govulncheck, core-has-no-third-party-deps]
+    needs: [test, integration, lint, govulncheck, core-has-no-third-party-deps, no-grpc-in-libraries]
     runs-on: ubuntu-latest
     steps:
       - name: Fail if any dependency failed

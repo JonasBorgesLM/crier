@@ -88,3 +88,13 @@ one; it is configurable for a destination that does not.
   records are counted as failed too. The alternative is splitting a batch by
   the indices a partial-success response does not give us. The count is
   conservative in the honest direction: it reports a problem that is real.
+
+## Amendment (ADR-0018)
+The choice of the slim proto module is recorded here in a single sentence,
+among a dozen other decisions. [ADR-0018](0018-otlp-slim-module.md) gives it
+its own record and adds what this one lacks: the decision is invisible at the
+import site — the two modules expose the same type names, and one changed
+import line reverts it — so it is enforced by a CI guard on the module graph
+rather than left to be remembered.
+
+Nothing decided here changes.
