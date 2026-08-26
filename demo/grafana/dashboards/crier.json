@@ -1,0 +1,36 @@
+{
+  "uid": "crier-demo",
+  "title": "crier — logs arriving",
+  "tags": ["crier"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "type": "text",
+      "title": "What you are looking at",
+      "gridPos": { "h": 5, "w": 24, "x": 0, "y": 0 },
+      "options": {
+        "mode": "markdown",
+        "content": "These logs travelled **checkout-service → crierd → OpenTelemetry Collector → Loki**.\n\nLook at the `ERROR` record about a failed receipt upload. It was sent containing an AWS access key in its message and a credential in an `api_key` attribute. Both arrive as `[REDACTED]` — crier masked them before they left the process, and it fails closed: a record it cannot mask is dropped and counted, never exported unmasked.\n\nThe record claiming to come from `billing-service` arrives attributed to `checkout-service`. Identity comes from the authenticated principal, never from the request body.\n\nBody redaction is pattern-based and best-effort. Structured attributes are the reliable path, which is why the demo shows both."
+      }
+    },
+    {
+      "type": "logs",
+      "title": "Everything crier delivered",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 16, "w": 24, "x": 0, "y": 5 },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true
+      },
+      "targets": [
+        { "refId": "A", "queryType": "range", "expr": "{service_name=~\".+\"}" }
+      ]
+    }
+  ]
+}
