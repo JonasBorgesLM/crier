@@ -11,7 +11,7 @@ leave the process, and exports to observability backends through a pluggable
 `Exporter` — embedded in your binary or as the standalone `crierd` daemon.
 
 > **Status: pre-release.** The design is complete and recorded in
-> [17 ADRs](docs/adr/README.md); implementation is in progress across
+> [19 ADRs](docs/adr/README.md); implementation is in progress across
 > [milestones M0–M6](https://github.com/JonasBorgesLM/crier/milestones).
 > Sections below marked *(pending)* are reserved, not yet written.
 
@@ -145,7 +145,7 @@ one still outstanding, are in [`docs/benchmarks.md`](docs/benchmarks.md).
 ## Documentation
 
 - [Requirements](REQUIREMENTS.md) — functional, non-functional, ecosystem
-- [Architecture Decision Records](docs/adr/README.md) — 17 decisions, with amendments
+- [Architecture Decision Records](docs/adr/README.md) — 19 decisions, with amendments
 - [Audit log](docs/audit-log.md) — review passes, findings, and who performed them
 - [Contributing](CONTRIBUTING.md)
 
