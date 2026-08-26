@@ -79,6 +79,47 @@ supersedes the old, not an edit:
 - All code, comments, and documentation in **English** (NFR8), whatever
   language the discussion happened in.
 
+### Stacked pull requests
+
+Milestones stack: while `feature/m1-core-engine` was still open, the M2 branch
+was based on it rather than on `develop`, so its PR showed the M2 diff alone.
+That is worth keeping — but the merge has an order, and getting it wrong costs
+a recovery.
+
+**Retarget the dependent PR to `develop` before deleting the base branch.**
+
+```bash
+gh pr merge 42 --merge                 # merge the lower PR, keep the branch
+gh pr edit 43 --base develop           # retarget the dependent PR first
+git push origin --delete feature/m1-core-engine
+```
+
+Do not merge with `--delete-branch` while another PR is based on that branch,
+and do not count on the dependent PR being retargeted for you. When this was
+tried, deleting the base branch **closed** the dependent PR, and the state was
+then stuck in both directions:
+
+```
+$ gh pr edit 43 --base develop
+Cannot change the base branch of a closed pull request.
+$ gh pr reopen 43
+Could not open the pull request.        # its base branch no longer exists
+```
+
+**Recovery, if someone lands there.** Restore the branch at the commit the PR
+was based on, then unwind in the order the API allows — reopen while the base
+exists, retarget, and only then delete:
+
+```bash
+git push origin <sha>:refs/heads/feature/m1-core-engine   # restore the base
+gh pr reopen 43
+gh pr edit 43 --base develop                              # now it is allowed
+git push origin --delete feature/m1-core-engine           # safe: base is develop
+```
+
+The PR survives this with its body, review history and checks intact, so there
+is no reason to open a replacement.
+
 ## Tests
 
 - Table-driven, with `t.Run` subtests.
