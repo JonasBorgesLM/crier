@@ -109,6 +109,22 @@ jobs:
           fi
           echo "core depends only on the standard library."
 
+  # The end-to-end suite runs crier against a real OpenTelemetry Collector in a
+  # container (NFR6). It is behind a build tag, so the matrix job above runs
+  # none of it — this is the job that actually exercises it.
+  integration:
+    name: integration (otlp)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: exporters/otlp/integration/go.mod
+      - name: go test -tags=integration
+        working-directory: exporters/otlp/integration
+        run: go test -tags=integration -race -shuffle=on -timeout 20m ./...
+
   lint:
     name: lint (${{ matrix.module }})
     needs: discover
@@ -155,7 +171,7 @@ jobs:
   ci-ok:
     name: CI OK
     if: always()
-    needs: [test, lint, govulncheck, core-has-no-third-party-deps]
+    needs: [test, integration, lint, govulncheck, core-has-no-third-party-deps]
     runs-on: ubuntu-latest
     steps:
       - name: Fail if any dependency failed
