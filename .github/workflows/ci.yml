@@ -15,16 +15,19 @@ permissions:
   contents: read
 
 env:
-  # The floor NFR2 fixes. Building and testing here is what proves the floor
-  # still holds — a module that quietly needs something newer fails these jobs.
+  # The floor the library modules promise (NFR2). Building and testing here is
+  # what proves the promise holds — a module that quietly needs something newer
+  # fails these jobs.
   GO_VERSION: "1.24"
-  # Go 1.24 is past its support window: its final release carries standard
-  # library vulnerabilities whose fixes were only ever shipped in later lines.
-  # Scanning at the floor therefore reports findings that no change to this
-  # repository can resolve, and a check that cannot go green stops being read.
-  # The vulnerability scan runs on a supported toolchain instead; the floor is
-  # still what consumers may build with, and the gap between the two is the
-  # subject of issue #44.
+  # NFR2's second policy. Go 1.24 is past its support window, so its final
+  # release carries standard-library vulnerabilities whose fixes only ever
+  # shipped in later lines. Scanning at the floor reports findings no change
+  # here can resolve, and a check that cannot go green stops being read.
+  #
+  # This is not a floor in disguise: a library's floor says who may import it,
+  # and consumers compile with their own toolchain. What ships to a user is the
+  # daemon, and the toolchain that builds it is the standard library inside it.
+  # Issue #44 tracks putting cmd/crierd's own build on this version too.
   GO_SCAN_VERSION: "stable"
 
 jobs:
