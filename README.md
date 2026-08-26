@@ -11,7 +11,7 @@ leave the process, and exports to observability backends through a pluggable
 `Exporter` — embedded in your binary or as the standalone `crierd` daemon.
 
 > **Status: pre-release.** The design is complete and recorded in
-> [15 ADRs](docs/adr/README.md); implementation is in progress across
+> [16 ADRs](docs/adr/README.md); implementation is in progress across
 > [milestones M0–M6](https://github.com/JonasBorgesLM/crier/milestones).
 > Sections below marked *(pending)* are reserved, not yet written.
 
@@ -102,13 +102,29 @@ into free-form text can only be matched heuristically.
 
 ## Benchmarks
 
-*(pending — tracked in M5. Measured with every stage enabled, including
-redaction, since that is how the pipeline actually runs.)*
+Measured with every stage enabled — limits, cardinality guard, redaction,
+filtering, admission — because that is how the pipeline runs. Apple M1, Go 1.26.
+
+| Path | ns/op | allocs/op |
+| --- | --- | --- |
+| Full pipeline, message with no credential (the common case) | 2,095 | 8 |
+| Full pipeline, message containing a credential (worst case) | 12,180 | 10 |
+| Full pipeline, 8 cores contended | 3,689 | 10 |
+| Body scan, nothing to mask | 37 | 0 |
+| Cardinality guard | 698 | 8 |
+| Per-source admission | 104 | 1 |
+
+Body redaction is the cost — everything else together is under 1 µs. That is
+the concrete reason structured attributes are preferred over interpolated
+message text: attribute-level redaction is reliable *and* cheap.
+
+Full results, including two performance defects this benchmark found and the
+one still outstanding, are in [`docs/benchmarks.md`](docs/benchmarks.md).
 
 ## Documentation
 
 - [Requirements](REQUIREMENTS.md) — functional, non-functional, ecosystem
-- [Architecture Decision Records](docs/adr/README.md) — 15 decisions, with amendments
+- [Architecture Decision Records](docs/adr/README.md) — 16 decisions, with amendments
 - [Audit log](docs/audit-log.md) — review passes, findings, and who performed them
 - [Contributing](CONTRIBUTING.md)
 
