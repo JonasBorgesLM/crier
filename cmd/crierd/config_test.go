@@ -174,3 +174,47 @@ func TestBatchSizeIsKeptInsideASmallBuffer(t *testing.T) {
 		})
 	}
 }
+
+// A credential must be able to live only in the environment. Requiring a
+// placeholder in the file to "unlock" the override defeats the reason the
+// override exists — and the demo found exactly that: a config with no
+// credentials section could never be given one.
+func TestCredentialsCanExistOnlyInTheEnvironment(t *testing.T) {
+	env := map[string]string{
+		"CRIER_SOURCES":                     "checkout-service, billing-service",
+		"CRIER_CREDENTIAL_CHECKOUT_SERVICE": "checkout-token",
+		"CRIER_CREDENTIAL_BILLING_SERVICE":  "billing-token",
+	}
+
+	// No file at all: nothing on disk names a source or holds a secret.
+	cfg, err := LoadConfig("", func(k string) string { return env[k] })
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+
+	for source, want := range map[string]string{
+		"checkout-service": "checkout-token",
+		"billing-service":  "billing-token",
+	} {
+		if got := cfg.Auth.Credentials[source]; got != want {
+			t.Errorf("credential for %q = %q, want %q", source, got, want)
+		}
+	}
+}
+
+// A declared source with no secret is a receiver that rejects that source
+// silently, so it has to be refused rather than started.
+func TestDeclaredSourceWithoutACredentialIsRefused(t *testing.T) {
+	cfg, err := LoadConfig("", func(k string) string {
+		if k == "CRIER_SOURCES" {
+			return "checkout-service"
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if _, err := secretsFrom(cfg.Auth.Credentials); err == nil {
+		t.Fatal("a source declared with no credential was accepted")
+	}
+}
