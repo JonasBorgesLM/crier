@@ -88,6 +88,13 @@ across milestones M0–M6, each citing the ADR that decided it. Prefer taking an
 existing issue over inventing work; the ordering across milestones is
 deliberate (the engine before the receiver, the receiver before the daemon).
 
+Milestone branches stack — an open milestone's PR is often based on the
+previous milestone's branch, not on `develop`. Merging them has an order:
+retarget the dependent PR to `develop` **before** deleting the base branch, or
+the dependent PR is closed and cannot be reopened or retargeted until the
+branch is restored. The sequence and the recovery are in
+[`CONTRIBUTING.md`](CONTRIBUTING.md#stacked-pull-requests).
+
 The board was populated once from a throwaway bootstrap script that is not
 kept in the repository. Create further issues by hand, matching the existing
 convention: a milestone, a `track:` label, whatever `kind:` labels apply, and a
