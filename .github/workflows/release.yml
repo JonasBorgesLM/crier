@@ -13,6 +13,13 @@ on:
 permissions:
   contents: read
 
+# NFR2's two toolchain policies. Same names, same values, and the same meaning
+# as in ci.yml — a release must not be built on a different toolchain from the
+# one CI exercised. Change them together.
+env:
+  GO_VERSION: "1.24"
+  GO_SUPPORTED_VERSION: "stable"
+
 jobs:
   resolve:
     name: Resolve module from tag
@@ -21,6 +28,7 @@ jobs:
       module: ${{ steps.parse.outputs.module }}
       version: ${{ steps.parse.outputs.version }}
       is_binary: ${{ steps.parse.outputs.is_binary }}
+      toolchain: ${{ steps.parse.outputs.toolchain }}
     steps:
       - id: parse
         run: |
@@ -30,9 +38,20 @@ jobs:
           echo "module=$module"   >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # Only cmd/ modules ship binaries; the rest are consumed as libraries.
+          # That is the same distinction NFR2's two toolchain policies turn on,
+          # so it decides both here rather than being restated somewhere else
+          # and drifting: a binary is built on the supported toolchain because
+          # that toolchain is the standard library shipped inside it; a library
+          # is built at the floor it promises importers.
           case "$module" in
-            cmd/*) echo "is_binary=true"  >> "$GITHUB_OUTPUT" ;;
-            *)     echo "is_binary=false" >> "$GITHUB_OUTPUT" ;;
+            cmd/*)
+              echo "is_binary=true" >> "$GITHUB_OUTPUT"
+              echo "toolchain=$GO_SUPPORTED_VERSION" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "is_binary=false" >> "$GITHUB_OUTPUT"
+              echo "toolchain=$GO_VERSION" >> "$GITHUB_OUTPUT"
+              ;;
           esac
 
   verify:
@@ -44,8 +63,11 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version: ${{ needs.resolve.outputs.toolchain }}
           cache-dependency-path: ${{ needs.resolve.outputs.module }}/go.mod
+
+      - name: Report the toolchain in use
+        run: echo "${{ needs.resolve.outputs.module }} is verified with $(go version)"
 
       # A tag is immutable once anyone has fetched it. Everything that can fail
       # is checked before the release exists, never after.
@@ -56,9 +78,19 @@ jobs:
           go vet ./...
           go test -race ./...
 
+      # Deliberately not the module's own toolchain. A library is verified at
+      # its floor, and Go 1.24 is past its support window, so scanning there
+      # reports standard-library findings no change to this repository can
+      # resolve — and would block every library release on them.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_SUPPORTED_VERSION }}
+          cache-dependency-path: ${{ needs.resolve.outputs.module }}/go.mod
+
       - name: govulncheck
         working-directory: ${{ needs.resolve.outputs.module }}
         run: |
+          go version
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
 
@@ -94,8 +126,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version: ${{ needs.resolve.outputs.toolchain }}
           cache-dependency-path: ${{ needs.resolve.outputs.module }}/go.mod
+
+      - name: Report the toolchain in use
+        run: echo "${{ needs.resolve.outputs.module }} binaries are built with $(go version)"
 
       - name: Build
         working-directory: ${{ needs.resolve.outputs.module }}

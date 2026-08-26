@@ -44,6 +44,8 @@ type Snapshot struct {
 	Exported              map[string]int64
 	Retries               map[string]int64
 	OpenCircuits          map[string]bool
+	Degraded              bool
+	DegradedTransitions   int64
 	ExportLatency         map[string]LatencyStat
 	BufferDepth           int
 	AttributesTruncated   map[string]int64
@@ -100,6 +102,8 @@ type CountingMetrics struct {
 	exported              map[string]int64
 	retries               map[string]int64
 	openCircuits          map[string]bool
+	degraded              bool
+	degradedTransitions   int64
 	exportLatency         map[string]LatencyStat
 	bufferDepth           int
 	attributesTruncated   map[string]int64
@@ -223,6 +227,14 @@ func (m *CountingMetrics) CircuitStateChanged(exporter string, open bool) {
 	m.openCircuits[label(m, m.openCircuits, exporter)] = open
 }
 
+// ExportDegraded implements Metrics.
+func (m *CountingMetrics) ExportDegraded(degraded bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.degraded = degraded
+	m.degradedTransitions++
+}
+
 // BufferDepth implements Metrics.
 func (m *CountingMetrics) BufferDepth(depth int) {
 	m.mu.Lock()
@@ -302,6 +314,8 @@ func (m *CountingMetrics) Snapshot() Snapshot {
 		Exported:              cloneMap(m.exported),
 		Retries:               cloneMap(m.retries),
 		OpenCircuits:          cloneMap(m.openCircuits),
+		Degraded:              m.degraded,
+		DegradedTransitions:   m.degradedTransitions,
 		ExportLatency:         cloneMap(m.exportLatency),
 		BufferDepth:           m.bufferDepth,
 		AttributesTruncated:   cloneMap(m.attributesTruncated),

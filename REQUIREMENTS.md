@@ -82,8 +82,34 @@ Threats explicitly considered (detailed in ADR-0008 and ADR-0010):
 
 - **NFR1** `core` module must have zero third-party runtime dependencies
   beyond the Go standard library.
-- **NFR2** Go 1.24 minimum, matching the rest of the portfolio's "lowest
-  viable version" policy.
+- **NFR2** Two toolchain policies, not one, because the two kinds of module in
+  this repository answer different questions:
+  - **Library modules** (`core`, `exporters/<name>`) declare the *lowest
+    viable* floor — currently Go 1.24. The `go` directive in a library is a
+    compatibility promise: it says who may import this. Whoever imports it
+    compiles the code with their own toolchain, so raising the floor strands
+    consumers without patching anything for them. A dependency that forces the
+    floor up is therefore a defect in the dependency choice, not a reason to
+    move the floor (ADR-0018 is one such case, enforced in CI).
+  - **Command modules** (`cmd/crierd`) build on the *most recent supported*
+    toolchain. Nobody imports a binary, so there is no compatibility to
+    preserve — and the toolchain that builds it is the standard library that
+    ships inside it. Building a release on an unsupported toolchain
+    distributes standard-library code that is known to be unpatched, which
+    makes the building toolchain part of the attack surface rather than a
+    detail of the build.
+
+  The two are independent: the daemon moving to a newer toolchain says nothing
+  about what a library may promise, and a library's floor never constrains what
+  the daemon is built with.
+
+  Both pipelines follow this. In CI, `cmd/crierd` builds and tests on the
+  supported toolchain and library modules at their floor; on the release path,
+  the tag prefix that already decides whether a module ships binaries decides
+  its toolchain too. The vulnerability scan runs on the supported toolchain in
+  both, whatever the module — a library verified at the floor would otherwise
+  be scanned against a standard library that no longer receives fixes.
+
 - **NFR3** Multi-module repository: `core`, each `exporters/<name>`, and
   `cmd/crierd` are independently versioned modules.
 - **NFR4** Configuration via environment variables and/or a config file,

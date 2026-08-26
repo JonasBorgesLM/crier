@@ -15,7 +15,25 @@ permissions:
   contents: read
 
 env:
+  # The floor the library modules promise (NFR2). Building and testing here is
+  # what proves the promise holds — a module that quietly needs something newer
+  # fails these jobs.
   GO_VERSION: "1.24"
+  # NFR2's second policy: the toolchain command modules are built with, and the
+  # one vulnerabilities are scanned against.
+  #
+  # This is not a floor in disguise. A library's floor says who may import it,
+  # and consumers compile the code with their own toolchain — so core and the
+  # exporters stay at GO_VERSION above. A binary is the opposite: nobody
+  # imports it, and the toolchain that builds it is the standard library that
+  # ships inside it, which makes it part of what is distributed.
+  #
+  # Scanning follows the same version for a related reason. Go 1.24 is past its
+  # support window, so its final release carries standard-library
+  # vulnerabilities whose fixes only ever shipped in later lines; scanning at
+  # the floor reports findings no change here can resolve, and a check that
+  # cannot go green stops being read.
+  GO_SUPPORTED_VERSION: "stable"
 
 jobs:
   # The repository is multi-module (ADR-0003), so a green root build does not
@@ -49,10 +67,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Which of NFR2's two policies this module falls under. Command modules
+      # build on the supported toolchain because that toolchain is the standard
+      # library shipped inside the binary; everything else builds at the floor
+      # it promises importers, which is what proves the promise still holds.
       - uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version: ${{ startsWith(matrix.module, 'cmd/') && env.GO_SUPPORTED_VERSION || env.GO_VERSION }}
           cache-dependency-path: ${{ matrix.module }}/go.mod
+
+      - name: Report the toolchain in use
+        run: |
+          echo "${{ matrix.module }} is built with $(go version)"
 
       - name: go build
         run: go build ./...
@@ -109,6 +135,67 @@ jobs:
           fi
           echo "core depends only on the standard library."
 
+  # The end-to-end suite runs crier against a real OpenTelemetry Collector in a
+  # container (NFR6). It is behind a build tag, so the matrix job above runs
+  # none of it — this is the job that actually exercises it.
+  integration:
+    name: integration (otlp)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: exporters/otlp/integration/go.mod
+      - name: go test -tags=integration
+        working-directory: exporters/otlp/integration
+        run: go test -tags=integration -race -shuffle=on -timeout 20m ./...
+
+  # ADR-0018: the OTLP exporter uses the slim proto module, because the
+  # canonical one ships its gRPC service stubs in the same package as the
+  # request message — so importing the message pulls in google.golang.org/grpc,
+  # which declares go 1.25.0 and lifts a library module above the floor NFR2
+  # asks it to promise.
+  #
+  # Both modules expose the same type names, so one changed import line reverts
+  # that with nothing on screen to say why. A comment does not survive a
+  # refactor; this does.
+  no-grpc-in-libraries:
+    name: library modules do not depend on gRPC
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [core, exporters/otlp]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: ${{ matrix.module }}/go.mod
+      - name: Assert gRPC is absent from the module graph
+        working-directory: ${{ matrix.module }}
+        run: |
+          # The module graph rather than the import list: a require line is
+          # enough to constrain version selection and drag the floor up,
+          # whether or not any package imports it yet.
+          #
+          # Resolved into a variable first so that a failure of `go mod graph`
+          # itself aborts the step. Piped straight into grep, a broken module
+          # would exit 1 for "no match" and read as a pass.
+          graph=$(go mod graph)
+          if edges=$(printf '%s\n' "$graph" | grep -F 'google.golang.org/grpc'); then
+            echo "::error::${{ matrix.module }} depends on google.golang.org/grpc, which ADR-0018 forbids in a library module."
+            echo "It declares go 1.25.0, so it raises this module above the Go 1.24 floor NFR2 promises to consumers."
+            echo "If this came from switching go.opentelemetry.io/proto/slim/otlp to go.opentelemetry.io/proto/otlp,"
+            echo "switch it back: the slim variant is the same generated types without the gRPC service stubs."
+            echo "See docs/adr/0018-otlp-slim-module.md."
+            echo "Offending edges:"
+            echo "$edges"
+            exit 1
+          fi
+          echo "${{ matrix.module }} has no gRPC in its module graph."
+
   lint:
     name: lint (${{ matrix.module }})
     needs: discover
@@ -142,7 +229,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
+          # Deliberately not GO_VERSION — see GO_SUPPORTED_VERSION above.
+          go-version: ${{ env.GO_SUPPORTED_VERSION }}
           cache-dependency-path: ${{ matrix.module }}/go.mod
       - name: Run govulncheck
         working-directory: ${{ matrix.module }}
@@ -155,7 +243,7 @@ jobs:
   ci-ok:
     name: CI OK
     if: always()
-    needs: [test, lint, govulncheck, core-has-no-third-party-deps]
+    needs: [test, integration, lint, govulncheck, core-has-no-third-party-deps, no-grpc-in-libraries]
     runs-on: ubuntu-latest
     steps:
       - name: Fail if any dependency failed
