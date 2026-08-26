@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 )
 
 // DefaultExportWorkers is how many batches a Dispatcher keeps in flight when
@@ -83,6 +84,7 @@ type Dispatcher struct {
 
 	mu            sync.Mutex
 	started       bool
+	draining      bool
 	workerErr     error
 	degraded      bool
 	degradedKnown bool
@@ -301,7 +303,13 @@ func (d *Dispatcher) OpenCircuits() []string {
 //
 // The context passed to Start must stay alive for the duration, or the workers
 // stop before they have drained.
-func (d *Dispatcher) Shutdown(ctx context.Context) error {
+func (d *Dispatcher) Shutdown(ctx context.Context) (DrainSummary, error) {
+	started := time.Now()
+
+	d.mu.Lock()
+	d.draining = true
+	d.mu.Unlock()
+
 	var errs []error
 	d.closeOnce.Do(func() {
 		if err := d.buffer.Close(); err != nil {
@@ -309,8 +317,16 @@ func (d *Dispatcher) Shutdown(ctx context.Context) error {
 		}
 	})
 
-	if err := d.waitForDrain(ctx); err != nil {
+	lost, err := d.waitForDrain(ctx)
+	if err != nil {
 		errs = append(errs, err)
+	}
+
+	summary := DrainSummary{
+		Lost:         lost,
+		Duration:     time.Since(started),
+		Destinations: d.destinationNames(),
+		OpenCircuits: d.OpenCircuits(),
 	}
 
 	if err := d.exporter.Shutdown(ctx); err != nil {
@@ -324,12 +340,34 @@ func (d *Dispatcher) Shutdown(ctx context.Context) error {
 		errs = append(errs, fmt.Errorf("export worker stopped early: %w", workerErr))
 	}
 
-	return errors.Join(errs...)
+	return summary, errors.Join(errs...)
+}
+
+// Draining reports whether Shutdown has begun.
+//
+// Readiness reflects it: an instance that has stopped accepting records is not
+// ready, whatever else is true of it (ADR-0015).
+func (d *Dispatcher) Draining() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.draining
+}
+
+// destinationNames reports every destination the exporter dispatches to.
+func (d *Dispatcher) destinationNames() []string {
+	if fanOut, ok := d.exporter.(*FanOut); ok {
+		return fanOut.Names()
+	}
+	names := make([]string, 0, len(d.circuits))
+	for _, c := range d.circuits {
+		names = append(names, c.Name())
+	}
+	return names
 }
 
 // waitForDrain waits for the workers to finish, or counts what they did not
 // reach when ctx expires first.
-func (d *Dispatcher) waitForDrain(ctx context.Context) error {
+func (d *Dispatcher) waitForDrain(ctx context.Context) (lost int, err error) {
 	d.mu.Lock()
 	started := d.started
 	d.mu.Unlock()
@@ -337,7 +375,7 @@ func (d *Dispatcher) waitForDrain(ctx context.Context) error {
 		// Nothing is draining the buffer, so whatever is in it stays there.
 		// Counting it as lost would be a guess about a dispatcher that was
 		// never running.
-		return nil
+		return 0, nil
 	}
 
 	drained := make(chan struct{})
@@ -348,9 +386,9 @@ func (d *Dispatcher) waitForDrain(ctx context.Context) error {
 
 	select {
 	case <-drained:
-		return nil
+		return 0, nil
 	case <-ctx.Done():
-		lost := d.buffer.Depth()
+		lost = d.buffer.Depth()
 		if lost > 0 {
 			// Attributed to no source: grouping them would mean dequeuing the
 			// very records we have just run out of time to handle. The count
@@ -358,6 +396,6 @@ func (d *Dispatcher) waitForDrain(ctx context.Context) error {
 			// the shutdown path that owns the final report.
 			d.metrics.RecordsDropped("", DropShutdownTimeout, lost)
 		}
-		return fmt.Errorf("drain timed out with %d records still buffered: %w", lost, ctx.Err())
+		return lost, fmt.Errorf("drain timed out with %d records still buffered: %w", lost, ctx.Err())
 	}
 }

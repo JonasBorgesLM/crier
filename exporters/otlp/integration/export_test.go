@@ -146,7 +146,7 @@ func TestRedactedRecordsReachTheCollectorMasked(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if err := dispatcher.Shutdown(ctx); err != nil {
+	if _, err := dispatcher.Shutdown(ctx); err != nil {
 		t.Fatalf("Shutdown: %v", err)
 	}
 
@@ -292,7 +292,7 @@ func TestCircuitOpensAndThePipelineReportsDegraded(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	if err := dispatcher.Shutdown(ctx); err != nil {
+	if _, err := dispatcher.Shutdown(ctx); err != nil {
 		t.Fatalf("Shutdown: %v", err)
 	}
 
