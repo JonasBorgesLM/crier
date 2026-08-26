@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.command // \"\"' | grep -qE '(^|[;&|]|&&)[[:space:]]*git[[:space:]]+add[[:space:]]+(-A|--all|\\.)([[:space:]]|$)' && printf '%s' \"{\\\"hookSpecificOutput\\\": {\\\"hookEventName\\\": \\\"PreToolUse\\\", \\\"permissionDecision\\\": \\\"deny\\\", \\\"permissionDecisionReason\\\": \\\"Blocked: 'git add -A' and 'git add .' stage the whole tree. That has collapsed unrelated subjects into one commit four times in this repository, each time producing a commit whose message described only the first subject (CLAUDE.md, 'One subject per commit, staged explicitly'). Stage one subject's files by name, commit, then the next. If the tree genuinely holds one subject, name its files anyway - that is the check, and it costs one line. To fix a commit that already mixed subjects: git reset --soft HEAD~1, then stage explicitly.\\\"}}\" || exit 0",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
