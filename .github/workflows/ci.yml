@@ -166,7 +166,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        module: [core, exporters/otlp]
+        module: [core, exporters/otlp, receivers/http]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
