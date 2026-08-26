@@ -74,8 +74,13 @@ func New(cfg Config) (*Receiver, error) {
 	return rc, nil
 }
 
-// Handler returns the mux serving every version this receiver speaks.
-func (rc *Receiver) Handler() http.Handler {
+// Mux serves every version this receiver speaks, without the request-level
+// guards.
+//
+// Handler wraps it in the recommended chain. This is what to compose a
+// different chain around — but the guards it omits are real, so replacing them
+// means providing equivalents, not dropping them.
+func (rc *Receiver) Mux() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("POST "+V1.Path(), rc.logsHandler(V1))
 	return mux

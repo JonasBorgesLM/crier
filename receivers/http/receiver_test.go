@@ -89,7 +89,7 @@ func (h *harness) post(body string, authorization ...string) *httptest.ResponseR
 		r.Header.Set("Authorization", auth)
 	}
 	w := httptest.NewRecorder()
-	h.receiver.Handler().ServeHTTP(w, r)
+	h.receiver.Mux().ServeHTTP(w, r)
 	return w
 }
 
@@ -365,7 +365,7 @@ func TestOnlyPostIsRouted(t *testing.T) {
 		r := httptest.NewRequestWithContext(t.Context(), method, V1.Path(), strings.NewReader(recordsBody(1)))
 		r.Header.Set("Authorization", "Bearer task-api:"+testSecret)
 		w := httptest.NewRecorder()
-		h.receiver.Handler().ServeHTTP(w, r)
+		h.receiver.Mux().ServeHTTP(w, r)
 
 		if w.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s: status = %d, want 405", method, w.Code)
@@ -379,7 +379,7 @@ func TestUnknownPathIsNotServed(t *testing.T) {
 	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v2/logs", strings.NewReader(recordsBody(1)))
 	r.Header.Set("Authorization", "Bearer task-api:"+testSecret)
 	w := httptest.NewRecorder()
-	h.receiver.Handler().ServeHTTP(w, r)
+	h.receiver.Mux().ServeHTTP(w, r)
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404 — an unserved version must not fall through to v1", w.Code)
