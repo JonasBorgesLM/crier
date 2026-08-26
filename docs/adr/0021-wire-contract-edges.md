@@ -51,14 +51,40 @@ in a patch release and breaks a client that was reading it as documented, which
 is the same class of silent breakage strict field rejection exists to prevent —
 arriving from the server's side.
 
-`admitted` → `accepted` therefore happened inside the contract. It is not a
-breaking change only because it landed before v1 was tagged: no release
-carries the old name. From the first tag, the field names are fixed.
+`admitted` → `accepted` therefore happened inside the contract, and was
+non-breaking for one reason only: it landed before anything was tagged.
+
+## The trigger
+
+That reason expires, so it is written here as a check to run rather than a fact
+to remember. **Before renaming, removing, or retyping any field in the response
+— including the `accepted` and `rejected` counts — run:**
+
+```bash
+git tag --list 'receivers/http/v*'
+```
+
+- **Nothing printed.** No release carries the field names. The change is free;
+  make it now rather than after the tag exists.
+- **Anything printed.** The names are frozen. The change is breaking, and it
+  needs a new path version (`/v2/logs`) served alongside v1 for a migration
+  window, with the older version reporting its deprecation through the header
+  and the metric ADR-0012 reserves for exactly this.
+
+The same check governs the request schema, and always did — this ADR only adds
+the response to what it covers.
+
+Adding a field is not on this list: it is backwards-compatible and needs no
+check.
 
 ## Consequences
 - The response schema needs the same review a request-schema change gets. In
   practice this makes the counts and their meanings hard to change casually,
   which is the intent.
+- The freedom is time-limited and the deadline is a command, not a memory. A
+  consequence written as an observation is one somebody reads after breaking
+  something; written as a check with two branches, it is one somebody runs
+  before.
 - Keeping `reason`'s text out of the contract preserves the freedom to improve
   a diagnostic message, which is the part most likely to want improving and
   the part least useful to depend on.
