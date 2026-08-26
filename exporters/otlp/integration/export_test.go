@@ -81,6 +81,21 @@ func TestExportIsAcceptedByARealCollector(t *testing.T) {
 // A record whose secret was masked by the pipeline must reach the backend
 // masked. This is the assertion the whole project exists for, and it is the
 // one that can only be made end to end (ADR-0014).
+//
+// Read the scope of that claim carefully. ADR-0014 declares body redaction
+// best-effort and pattern-based: what this test proves is that two values
+// chosen to match the default rules — an AWS key ID in free text, and an
+// attribute under a key that reads as sensitive — survive the whole path
+// masked. It is evidence that redaction is wired in and is not bypassed
+// between the pipeline and the wire. It is not evidence of coverage, and a
+// green run here says nothing about a credential shaped like something the
+// patterns do not match.
+//
+// Coverage of the rules themselves belongs to the unit suite in core, where
+// a case can be added for the cost of a table row. The reason attributes are
+// preferred over interpolated message text is exactly this asymmetry: an
+// attribute is redacted by its key, which is reliable, while free text is
+// redacted by shape, which is a heuristic.
 func TestRedactedRecordsReachTheCollectorMasked(t *testing.T) {
 	c := startCollector(t)
 	body := marker(t)
@@ -137,6 +152,8 @@ func TestRedactedRecordsReachTheCollectorMasked(t *testing.T) {
 
 	c.waitForLog(body)
 	logs := c.logs()
+	// Absence for these two values only — see the note on the test. Widening
+	// this list is not the same as widening what redaction catches.
 	for _, leak := range []string{secret, "hunter2-should-never-leave"} {
 		if strings.Contains(logs, leak) {
 			t.Errorf("%q reached the backend unmasked", leak)
