@@ -258,3 +258,18 @@ func TestSeverityOutsideTheOTelRangeIsUnspecified(t *testing.T) {
 		}
 	}
 }
+
+// A version placeholder reaching the backend reads like a real version and
+// identifies nothing.
+func TestPlaceholderScopeVersionsAreDropped(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"v1.2.3", "v1.2.3"},
+		{"(devel)", ""},
+		{"v0.0.0-00010101000000-000000000000", ""},
+		{"", ""},
+	} {
+		if got := releaseVersion(tc.in); got != tc.want {
+			t.Errorf("releaseVersion(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

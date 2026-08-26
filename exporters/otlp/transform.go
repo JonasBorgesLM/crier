@@ -32,14 +32,29 @@ var scopeVersion = sync.OnceValue(func() string {
 	}
 	for _, dep := range info.Deps {
 		if dep.Path == "github.com/JonasBorgesLM/crier/exporters/otlp" {
-			return dep.Version
+			return releaseVersion(dep.Version)
 		}
 	}
 	if info.Main.Path == "github.com/JonasBorgesLM/crier/exporters/otlp" {
-		return info.Main.Version
+		return releaseVersion(info.Main.Version)
 	}
 	return ""
 })
+
+// releaseVersion drops the placeholders the toolchain uses when there is no
+// version to report.
+//
+// A module built from a replace directive, or from a working tree, carries
+// "(devel)" or the zero pseudo-version. Both are noise the moment they leave
+// the process: they arrive at the backend as a scope label that reads like a
+// real version and identifies nothing. An empty scope version says the same
+// thing without pretending.
+func releaseVersion(version string) string {
+	if version == "(devel)" || strings.HasPrefix(version, "v0.0.0-00010101000000") {
+		return ""
+	}
+	return version
+}
 
 // buildRequest maps a crier batch onto the OTLP logs payload.
 //
