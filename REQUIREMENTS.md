@@ -101,10 +101,22 @@ Threats explicitly considered (detailed in ADR-0008 and ADR-0010):
 
   The two are independent: the daemon moving to a newer toolchain says nothing
   about what a library may promise, and a library's floor never constrains what
-  the daemon is built with. CI verifies both — library modules build and test
-  at their declared floor, and the vulnerability scan runs on the supported
-  toolchain (issue #44 tracks bringing the daemon's own build under the second
-  policy).
+  the daemon is built with.
+
+  > **Not yet fully applied.** The second policy holds in CI — `cmd/crierd`
+  > builds and tests on the supported toolchain, library modules at their
+  > declared floor, and the vulnerability scan on the supported one. It does
+  > **not** hold on the release path: `.github/workflows/release.yml` pins Go
+  > 1.24 for the job that cross-compiles the published `crierd` binaries, so
+  > the artifact a user downloads is currently built on a toolchain that is
+  > past its support window — carrying standard-library code known to be
+  > unpatched, which is precisely what the second policy exists to prevent.
+  >
+  > This note is here so the requirement is not read as a description of what
+  > the pipeline does. Tracked as the first item of
+  > [#44](https://github.com/JonasBorgesLM/crier/issues/44); delete it when the
+  > release workflow builds on the supported toolchain.
+
 - **NFR3** Multi-module repository: `core`, each `exporters/<name>`, and
   `cmd/crierd` are independently versioned modules.
 - **NFR4** Configuration via environment variables and/or a config file,
