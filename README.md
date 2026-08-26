@@ -11,7 +11,7 @@ leave the process, and exports to observability backends through a pluggable
 `Exporter` — embedded in your binary or as the standalone `crierd` daemon.
 
 > **Status: pre-release.** The design is complete and recorded in
-> [15 ADRs](docs/adr/README.md); implementation is in progress across
+> [17 ADRs](docs/adr/README.md); implementation is in progress across
 > [milestones M0–M6](https://github.com/JonasBorgesLM/crier/milestones).
 > Sections below marked *(pending)* are reserved, not yet written.
 
@@ -54,19 +54,40 @@ transport limits → parse & validate → attest identity → normalize
 
 ## Composition
 
-Retry and circuit breaking are **per exporter, inside the fan-out**:
+Retry and circuit breaking are **per destination, inside the fan-out**:
 
 ```go
-exporter := core.FanOut(
-    core.Retry(core.CircuitBreaker(otlpExporter)),
-    core.Retry(core.CircuitBreaker(otherExporter)),
-)
+// Innermost is the exporter, then its breaker, then its retry — so each
+// destination retries its own batch and nobody else's.
+exporter, _ := otlp.New(otlp.Config{Endpoint: "https://collector:4318"})
+breaker, _ := core.NewCircuitBreaker(core.CircuitBreakerConfig{Name: "primary", Exporter: exporter})
+retry, _ := core.NewRetry(core.RetryConfig{Name: "primary", Exporter: breaker})
+
+fanOut, _ := core.NewFanOut(core.FanOutConfig{
+    Destinations: []core.Destination{{Name: "primary", Exporter: retry}},
+})
 ```
 
-Building it the other way round — `Retry(FanOut(a, b))` — is a real defect, not
-a style preference. If `b` fails, the whole batch is re-sent and healthy `a`
-receives it once per attempt, because an unrelated destination is broken. See
-ADR-0013 and audit finding A-1.
+Building it the other way round — a retry wrapping the fan-out — is a real
+defect, not a style preference. If one destination fails, the whole batch is
+re-sent and a healthy one receives it once per attempt, because an unrelated
+destination is broken. See ADR-0013 and audit finding A-1; the test that pins
+it down is `TestRetryInsideFanOutDoesNotAmplifyToHealthyDestinations`.
+
+A bounded pool of workers drains the buffer and hands each batch to the
+fan-out, which dispatches to every destination at once under a per-destination
+deadline (ADR-0016):
+
+```go
+dispatcher, _ := core.NewDispatcher(core.DispatcherConfig{Buffer: buffer, Exporter: fanOut})
+dispatcher.Start(ctx)
+...
+dispatcher.Shutdown(drainCtx) // drains, then counts whatever it could not reach
+```
+
+`dispatcher.Degraded()` reports the state where every destination's circuit is
+open — the one readiness must reflect, so an orchestrator stops sending records
+crier cannot export (ADR-0015).
 
 ## Install
 
@@ -124,7 +145,7 @@ one still outstanding, are in [`docs/benchmarks.md`](docs/benchmarks.md).
 ## Documentation
 
 - [Requirements](REQUIREMENTS.md) — functional, non-functional, ecosystem
-- [Architecture Decision Records](docs/adr/README.md) — 15 decisions, with amendments
+- [Architecture Decision Records](docs/adr/README.md) — 17 decisions, with amendments
 - [Audit log](docs/audit-log.md) — review passes, findings, and who performed them
 - [Contributing](CONTRIBUTING.md)
 
