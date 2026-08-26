@@ -72,6 +72,20 @@ the expensive way — see [`docs/audit-log.md`](docs/audit-log.md).
 - **Conventional Commits** (NFR9). Scope is the module or area:
   `feat(core): add per-source admission`, `fix(receiver): …`, `docs(adr): …`,
   `ci: …`, `build(deps): …`.
+- **One subject per commit, staged explicitly.** Do not use `git add -A` when
+  the working tree holds work on more than one subject — stage the files for
+  each subject and commit them separately.
+
+  This has gone wrong twice here, the same way both times: `git add -A` swept
+  an ADR, a test and a workflow change into one commit whose message described
+  only the ADR. Both were caught and split afterwards, which is the expensive
+  version of getting it right. A commit whose message does not describe
+  everything in it is one nobody can review or revert cleanly, and the message
+  is written from what the author was thinking about, not from what was staged.
+
+  When several subjects have already been committed together, `git reset
+  --soft HEAD~1` followed by explicit staging is the fix, not an amended
+  message that lists them.
 - **Every structural decision gets an ADR** (NFR7). Do not silently resolve a
   question listed as open in `docs/adr/README.md` — write the ADR first.
 - **Go 1.24** is the floor (NFR2). Do not raise it for convenience.
