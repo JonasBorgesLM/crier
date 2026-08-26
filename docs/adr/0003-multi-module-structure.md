@@ -27,3 +27,13 @@ This mirrors the `core` / `redisstore` split already validated in `moat`.
   changelog per module, retraction process if a bad version is published).
 - Slightly more repository ceremony (multiple `go.mod`/`CHANGELOG` files) in
   exchange for a materially lighter dependency footprint for `core` consumers.
+
+## Amendment (ADR-0020)
+This ADR lists `core`, `exporters/<name>` and `cmd/crierd`, and places
+"receiver contracts" in `core` without saying where a receiver implementation
+goes — there was none at the time.
+
+[ADR-0020](0020-receiver-module-placement.md) adds `receivers/<name>`, for the
+same reason `exporters/<name>` exists: the HTTP receiver depends on `moat`,
+which NFR1 forbids in `core`, and an embedded consumer should not inherit an
+HTTP server it does not use.

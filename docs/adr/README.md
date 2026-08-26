@@ -11,7 +11,7 @@ the time remains readable.
 | --- | --- | --- | --- |
 | [0001](0001-async-http-receiver.md) | Asynchronous HTTP receiver | Accepted | — |
 | [0002](0002-buffer-and-backpressure-policy.md) | Buffer implementation and backpressure policy | Accepted | ADR-0011, ADR-0015 |
-| [0003](0003-multi-module-structure.md) | Multi-module repository structure | Accepted | — |
+| [0003](0003-multi-module-structure.md) | Multi-module repository structure | Accepted | ADR-0020 |
 | [0004](0004-otel-schema-and-trace-correlation.md) | OpenTelemetry-aligned schema and trace correlation | Accepted | ADR-0008, ADR-0009 |
 | [0005](0005-self-observability.md) | Self-observability | Accepted | NFR11, ADR-0010, ADR-0011, ADR-0012 |
 | [0006](0006-redaction-strategy.md) | Redaction strategy for sensitive fields | Accepted | ADR-0014 |
@@ -28,6 +28,7 @@ the time remains readable.
 | [0017](0017-otlp-transport-and-encoding.md) | OTLP transport, encoding, and failure classification | Accepted | ADR-0018 |
 | [0018](0018-otlp-slim-module.md) | The OTLP proto module is the slim variant | Accepted — enforced in CI | — |
 | [0019](0019-unlisted-sources-share-a-pool.md) | Unlisted sources share a pool, not a per-source default | Accepted — supersedes part of ADR-0011 | — |
+| [0020](0020-receiver-module-placement.md) | The HTTP receiver is its own module | Accepted — extends ADR-0003 | — |
 
 ADR-0008 through ADR-0012 came out of the first review pass; ADR-0013 through
 ADR-0015 out of the second. Both passes are recorded in
@@ -37,7 +38,8 @@ open on purpose, the second deciding how a batch actually leaves the process.
 ADR-0018 came out of reviewing that second one: a decision whose reasoning is
 invisible at the import site needs a guard, not a sentence. ADR-0019 came out
 of implementing ADR-0011 and finding that one sentence of it could not be
-built as written.
+built as written. ADR-0020 came out of starting the receiver and finding that
+ADR-0003 never said where one lives.
 
 ## Open questions
 
