@@ -1,6 +1,7 @@
 package httpreceiver
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"net/http"
@@ -34,6 +35,14 @@ type Authenticator interface {
 // StaticCredentials authenticates a shared secret per source, configured up
 // front.
 //
+// One timing residue is known and accepted. secret.Value.Equal leaks whether
+// the two lengths differ — which moat documents and subtle's comparison cannot
+// avoid — so the unknown-source path, comparing against a fixed-length decoy,
+// is not perfectly indistinguishable from a known source whose credential
+// happens to be a different length. That is far below the difference an early
+// return would produce, and closing it would mean holding a decoy per length
+// the store contains, which leaks the same thing from the other side.
+//
 // mTLS is the recommended production alternative and is phase two (ADR-0008).
 // This exists because a shared secret is what a small deployment will actually
 // configure, and the alternative to supporting it well is people disabling
@@ -47,6 +56,15 @@ type StaticCredentials struct {
 	// unknown case returns before any comparison and the difference is
 	// measurable.
 	decoy secret.Value
+
+	// compare is the credential comparison. Nil means secret.Value.Equal.
+	//
+	// It is a test seam, and it exists for one reason: without it the decoy is
+	// code that nothing verifies. A timing assertion cannot be made reliable
+	// on a shared CI runner, so the property is pinned the other way — a test
+	// observes that the unknown-source path performs a comparison at all,
+	// which is what a refactor that "optimises" the early return would break.
+	compare func(stored, presented secret.Value) bool
 }
 
 var _ Authenticator = (*StaticCredentials)(nil)
@@ -76,10 +94,26 @@ func NewStaticCredentials(credentials map[string]secret.Value) (*StaticCredentia
 		stored[source] = credential
 	}
 
-	return &StaticCredentials{
-		credentials: stored,
-		decoy:       secret.New([]byte("decoy-credential-for-constant-time-comparison")),
-	}, nil
+	decoy, err := randomSecret()
+	if err != nil {
+		return nil, fmt.Errorf("generating the comparison decoy: %w", err)
+	}
+
+	return &StaticCredentials{credentials: stored, decoy: decoy}, nil
+}
+
+// randomSecret produces the decoy compared against on the unknown-source path.
+//
+// Generated rather than written down. A constant in the source is a value an
+// attacker can present deliberately, and while a matching decoy still cannot
+// authenticate anyone — `known` is false either way — a decoy nobody can
+// predict is one nobody can align anything against.
+func randomSecret() (secret.Value, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return secret.Value{}, err
+	}
+	return secret.New(buf), nil
 }
 
 // Sources lists the configured source identifiers. Useful in a config dump,
@@ -121,10 +155,23 @@ func (s *StaticCredentials) Authenticate(r *http.Request) (string, error) {
 		stored = s.decoy
 	}
 
-	// Constant time with respect to the contents, and it never assembles
-	// either plaintext (moat's secret.Value).
-	if !stored.Equal(secret.New([]byte(presented))) || !known {
+	// Evaluated before the `known` check, and deliberately: the comparison
+	// must happen on both paths, or an unknown identifier returns faster than
+	// a wrong secret and the store becomes an enumeration oracle by timing.
+	//
+	// The comparison itself is constant time with respect to the contents and
+	// never assembles either plaintext (moat's secret.Value).
+	matched := s.equal(stored, secret.New([]byte(presented)))
+	if !matched || !known {
 		return "", fmt.Errorf("%w: credential rejected", ErrUnauthenticated)
 	}
 	return source, nil
+}
+
+// equal compares a presented credential against a stored one.
+func (s *StaticCredentials) equal(stored, presented secret.Value) bool {
+	if s.compare != nil {
+		return s.compare(stored, presented)
+	}
+	return stored.Equal(presented)
 }

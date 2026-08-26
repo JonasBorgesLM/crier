@@ -170,6 +170,71 @@ func TestUnknownSourceIsIndistinguishableFromAWrongSecret(t *testing.T) {
 	}
 }
 
+// The other half of "indistinguishable": by timing, not only by reading.
+//
+// A timing assertion cannot be made reliable on a shared CI runner — the
+// signal being defended against is smaller than the scheduling noise, and a
+// test that measures it either flakes or passes vacuously. So the property is
+// pinned deterministically instead: the unknown-source path must perform a
+// comparison, which is exactly what a refactor that treats the early return as
+// an optimisation would remove.
+//
+// What this proves: the comparison happens on both paths, and it is
+// secret.Value.Equal, whose constant-time behaviour is moat's contract and
+// moat's test suite. What it does not prove: that everything *around* the
+// comparison takes equal time — a map hit and a map miss are not identical
+// work, and neither are their allocations. That residue is accepted; it is far
+// below the early-return difference this defends against.
+func TestUnknownSourceStillPerformsAComparison(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		header string
+	}{
+		{"unknown source", "Bearer nobody:" + testSecret},
+		{"known source, wrong secret", "Bearer task-api:wrong"},
+		{"known source, right secret", "Bearer task-api:" + testSecret},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			auth := testCredentials(t)
+			var comparisons int
+			auth.compare = func(stored, presented secret.Value) bool {
+				comparisons++
+				return stored.Equal(presented)
+			}
+
+			_, _ = auth.Authenticate(requestWith(tc.header))
+
+			if comparisons != 1 {
+				t.Errorf("the path performed %d credential comparisons, want exactly 1 — "+
+					"an unknown identifier that returns before comparing is measurably faster "+
+					"than a wrong secret, which makes the credential store an enumeration oracle",
+					comparisons)
+			}
+		})
+	}
+}
+
+// The decoy has to be a real value, or the comparison it exists to perform is
+// a comparison against nothing — and it has to be unpredictable, or it is a
+// value an attacker can present deliberately.
+func TestDecoyIsRealAndUnpredictable(t *testing.T) {
+	first := testCredentials(t)
+	if first.decoy.IsZero() {
+		t.Fatal("the decoy is the zero Value; the unknown-source path compares against nothing")
+	}
+
+	// Generated per instance, so it is not a constant sitting in the source.
+	second := testCredentials(t)
+	if first.decoy.Equal(second.decoy) {
+		t.Error("two constructions produced the same decoy; it is a constant, which is a value an attacker can present")
+	}
+
+	// And it authenticates nobody even if it were somehow presented.
+	if _, err := first.Authenticate(requestWith("Bearer nobody:" + string(first.decoy.Bytes()))); err == nil {
+		t.Fatal("presenting the decoy authenticated an unknown source")
+	}
+}
+
 func TestSourcesListsConfiguredIdentifiers(t *testing.T) {
 	got := testCredentials(t).Sources()
 	if len(got) != 2 {
