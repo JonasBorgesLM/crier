@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -249,23 +250,38 @@ func TestEmbeddedFilteredRecordIsNotAnError(t *testing.T) {
 	}
 }
 
-func TestEmbeddedLogBatchContinuesPastAFailure(t *testing.T) {
-	crier, exporter := newEmbedded(t, Options{Capacity: 4, BatchSize: 4, DropPolicy: DropPolicyReject})
+// LogBatch's own contract: every record admitted, the count returned, and the
+// service version stamped on each.
+//
+// Whether admission continues past a failing record is the pipeline's
+// behaviour and is tested there, deterministically
+// (TestAdmitBatchContinuesPastAFailure). Reproducing it here meant filling a
+// buffer that a running dispatcher is concurrently draining, which is a race
+// dressed as a test: it passed most of the time and failed when the exporter
+// was quick.
+func TestEmbeddedLogBatchAdmitsEveryRecord(t *testing.T) {
+	crier, exporter := newEmbedded(t, Options{ServiceVersion: "2.0.0"})
 
 	batch := make([]LogRecord, 6)
 	for i := range batch {
-		batch[i] = LogRecord{Body: "record"}
+		batch[i] = LogRecord{Body: fmt.Sprintf("record %d", i), Severity: SeverityInfo}
 	}
-	accepted, err := crier.LogBatch(t.Context(), batch)
 
-	if accepted == 0 {
-		t.Fatalf("accepted = 0, want the records that fit: %v", err)
+	accepted, err := crier.LogBatch(t.Context(), batch)
+	if err != nil {
+		t.Fatalf("LogBatch: %v", err)
 	}
-	if accepted == len(batch) {
-		t.Fatalf("accepted all %d into a buffer of 4", len(batch))
+	if accepted != len(batch) {
+		t.Fatalf("accepted = %d, want all %d", accepted, len(batch))
 	}
-	if err == nil {
-		t.Error("err = nil despite records being rejected")
+
+	waitFor(t, "every record to be exported", func() bool { return len(exporter.exported()) == len(batch) })
+	for _, rec := range exporter.exported() {
+		if rec.Resource.ServiceName != "task-api" {
+			t.Errorf("ServiceName = %q", rec.Resource.ServiceName)
+		}
+		if rec.Resource.ServiceVersion != "2.0.0" {
+			t.Errorf("ServiceVersion = %q, want it stamped on every record", rec.Resource.ServiceVersion)
+		}
 	}
-	waitFor(t, "the accepted records to export", func() bool { return len(exporter.exported()) > 0 })
 }
