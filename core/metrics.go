@@ -74,6 +74,15 @@ type Metrics interface {
 	// All-open is the degraded state surfaced through readiness (ADR-0015).
 	CircuitStateChanged(exporter string, open bool)
 
+	// ExportDegraded reports the pipeline entering or leaving the state where
+	// no destination will accept anything (ADR-0015).
+	//
+	// It is separate from CircuitStateChanged because it is a different
+	// question. One breaker opening is a destination to look at; every
+	// breaker being open is an outage, and an operator should not have to
+	// join the per-destination series to find that out.
+	ExportDegraded(degraded bool)
+
 	// BufferDepth reports current occupancy. A gauge, not a counter.
 	BufferDepth(depth int)
 
@@ -150,6 +159,9 @@ func (NopMetrics) ExportRetried(string) {}
 
 // CircuitStateChanged implements [Metrics] and records nothing.
 func (NopMetrics) CircuitStateChanged(string, bool) {}
+
+// ExportDegraded implements [Metrics] and records nothing.
+func (NopMetrics) ExportDegraded(bool) {}
 
 // BufferDepth implements [Metrics] and records nothing.
 func (NopMetrics) BufferDepth(int) {}
