@@ -56,3 +56,13 @@ how `moat` treats memory vs. Redis stores as separate concerns.
 - Reservation configuration must be validated eagerly (NFR4): reservations
   summing above total buffer capacity is a configuration error that should
   fail at startup, not silently under-deliver at runtime.
+
+## Amendment (ADR-0019)
+"Reservations are configured per source with a default applied to unlisted
+sources" is superseded. A per-source default cannot be guaranteed, because the
+number of unlisted sources is unknowable at startup, so granting each of them a
+floor admits more records than the buffer holds — and does it silently, which
+is the failure this ADR's own consequences warn about.
+
+[ADR-0019](0019-unlisted-sources-share-a-pool.md) replaces it with a single
+shared `UnlistedPool`. Everything else here stands.

@@ -38,5 +38,13 @@ stderr (or to a *different* collector), never back into its own receiver.
 The metrics set is also extended by later decisions: records filtered
 (ADR-0010), truncation and cardinality-cap events (ADR-0010), per-source
 admission rejections (ADR-0011), identity-discrepancy counts (ADR-0008),
-clock-skew deviations (ADR-0009), and deprecated wire-version usage
-(ADR-0012).
+clock-skew deviations and absent-timestamp counts (ADR-0009), and deprecated
+wire-version usage (ADR-0012).
+
+The last two are separate counters, not one. An absent `Timestamp` is not a
+clock that is wrong by the distance to the zero time, and folding it into the
+skew statistic swamps the number an operator uses to find a source whose clock
+is broken. ADR-0009 already treats the two cases apart — absent means
+`ObservedTimestamp` is used at export, deviation beyond the threshold is what
+gets counted — so this enumeration follows it rather than deciding anything
+new.
