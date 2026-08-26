@@ -21,6 +21,25 @@ const (
 	DefaultMaxBackoff = 5 * time.Second
 )
 
+// RetryHint is implemented by an error that knows how long the caller should
+// wait before trying again — an HTTP 429 or 503 carrying Retry-After
+// (ADR-0017).
+//
+// Retry waits for the longer of its own backoff and the hint. Ignoring a
+// destination that has just told us how long it needs is how a rate limit
+// turns into an outage: the sender keeps arriving early, keeps being refused,
+// and spends its whole budget doing it.
+//
+// The hint is bounded by the export deadline, not obeyed unconditionally
+// (ADR-0016). A destination asking for an hour gets the deadline, and the
+// batch fails rather than parking a dispatch worker for an hour.
+type RetryHint interface {
+	error
+
+	// RetryAfter is how long the destination asked us to wait.
+	RetryAfter() time.Duration
+}
+
 // RetryConfig configures a Retry. Build one with NewRetry, which validates
 // eagerly (NFR4).
 type RetryConfig struct {
@@ -150,7 +169,7 @@ func (r *Retry) Export(ctx context.Context, batch []LogRecord) error {
 			return fmt.Errorf("gave up after %d attempts: %w", attempt, err)
 		}
 
-		if waitErr := r.wait(ctx, attempt); waitErr != nil {
+		if waitErr := r.wait(ctx, attempt, err); waitErr != nil {
 			// Both errors matter: the export failure says why we were
 			// retrying, the wait error says why we stopped.
 			return fmt.Errorf("retry abandoned during backoff after %d attempts: %w",
@@ -180,8 +199,13 @@ func (r *Retry) backoff(attempt int) time.Duration {
 }
 
 // wait sleeps for the backoff interval, or returns early if ctx is done.
-func (r *Retry) wait(ctx context.Context, attempt int) error {
+//
+// cause is the failure being retried, consulted for a Retry-After hint.
+func (r *Retry) wait(ctx context.Context, attempt int, cause error) error {
 	d := r.backoff(attempt)
+	if hint := retryAfter(cause); hint > d {
+		d = hint
+	}
 	if r.sleep != nil {
 		return r.sleep(ctx, d)
 	}
@@ -194,6 +218,15 @@ func (r *Retry) wait(ctx context.Context, attempt int) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+// retryAfter returns the delay a failure asked for, or zero if it named none.
+func retryAfter(err error) time.Duration {
+	var hint RetryHint
+	if errors.As(err, &hint) {
+		return hint.RetryAfter()
+	}
+	return 0
 }
 
 // MutatesBatch forwards the wrapped exporter's declaration, so a leaf that

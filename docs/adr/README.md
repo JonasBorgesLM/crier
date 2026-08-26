@@ -25,11 +25,13 @@ the time remains readable.
 | [0014](0014-redaction-scope-and-failure-policy.md) | Redaction scope and failure policy | Accepted — closes audit findings A-2, A-3 | — |
 | [0015](0015-degradation-and-drain-accounting.md) | Degradation under sustained export failure, and drain accounting | Accepted — closes audit findings A-4, A-5 | — |
 | [0016](0016-export-worker-topology.md) | Export worker topology and failure isolation | Accepted — resolves ADR-0013's open question | — |
+| [0017](0017-otlp-transport-and-encoding.md) | OTLP transport, encoding, and failure classification | Accepted | — |
 
 ADR-0008 through ADR-0012 came out of the first review pass; ADR-0013 through
 ADR-0015 out of the second. Both passes are recorded in
-[`../audit-log.md`](../audit-log.md). ADR-0016 came out of implementing the
-export layer, resolving a question ADR-0013 left open on purpose.
+[`../audit-log.md`](../audit-log.md). ADR-0016 and ADR-0017 came out of
+implementing the export layer — the first resolving a question ADR-0013 left
+open on purpose, the second deciding how a batch actually leaves the process.
 
 ## Open questions
 

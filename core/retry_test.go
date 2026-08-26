@@ -320,3 +320,58 @@ func TestRetryShutdownReachesTheWrappedExporter(t *testing.T) {
 		t.Errorf("wrapped Shutdown called %d times, want 1", got)
 	}
 }
+
+// throttled is an error that names its own delay, as an HTTP 429 does.
+type throttled struct{ after time.Duration }
+
+func (t throttled) Error() string             { return fmt.Sprintf("429, retry after %v", t.after) }
+func (t throttled) RetryAfter() time.Duration { return t.after }
+
+var _ RetryHint = throttled{}
+
+// A destination that has just said how long it needs is not helped by arriving
+// early on our own schedule (ADR-0017).
+func TestRetryHonoursTheDelayADestinationAsksFor(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want time.Duration
+	}{
+		{
+			name: "hint longer than the backoff wins",
+			err:  throttled{after: 2 * time.Second},
+			want: 2 * time.Second,
+		},
+		{
+			// A hint shorter than the backoff is not an instruction to hurry.
+			name: "backoff longer than the hint wins",
+			err:  throttled{after: time.Millisecond},
+			want: 100 * time.Millisecond,
+		},
+		{
+			name: "no hint leaves the backoff alone",
+			err:  errors.New("connection reset"),
+			want: 100 * time.Millisecond,
+		},
+		{
+			// Wrapped, which is how it will actually arrive.
+			name: "hint reached through a wrapper",
+			err:  fmt.Errorf("exporting to primary: %w", throttled{after: 3 * time.Second}),
+			want: 3 * time.Second,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var slept []time.Duration
+			e := &fakeExporter{export: func(context.Context, []LogRecord) error { return tc.err }}
+			r := newTestRetry(t, RetryConfig{
+				Exporter: e, MaxAttempts: 2, InitialBackoff: 100 * time.Millisecond,
+			}, &slept)
+
+			_ = r.Export(context.Background(), testBatch(1))
+
+			if len(slept) != 1 || slept[0] != tc.want {
+				t.Errorf("backoffs = %v, want [%v]", slept, tc.want)
+			}
+		})
+	}
+}
