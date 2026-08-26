@@ -249,8 +249,9 @@ func TestSkipBodyStillRedactsKeys(t *testing.T) {
 
 func TestEmptyPatternSetsDisableTheirRules(t *testing.T) {
 	r := mustRedactor(t, RedactionConfig{
-		KeyPatterns:  []string{},
-		BodyPatterns: []string{},
+		KeySubstrings: []string{},
+		KeyPatterns:   []string{},
+		BodyPatterns:  []string{},
 	})
 
 	rec := LogRecord{Body: "password: hunter2", Attributes: map[string]any{"token": "t"}}

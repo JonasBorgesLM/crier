@@ -16,21 +16,45 @@ const RedactionMark = "[REDACTED]"
 // is dropped, never exported (ADR-0014).
 var ErrRedactionFailed = errors.New("redaction failed")
 
-// SensitiveKeyPatterns are the attribute-key patterns masked by default.
-// Matching is case-insensitive and on substrings, because the field is called
-// "authorization" in one service and "auth_header" in the next.
-var SensitiveKeyPatterns = []string{
-	`(?i)pass(word|wd|phrase)?`,
-	`(?i)secret`,
-	`(?i)token`,
-	`(?i)api[_.-]?key`,
-	`(?i)auth(oriz|entic)ation`,
-	`(?i)credential`,
-	`(?i)private[_.-]?key`,
-	`(?i)session[_.-]?id`,
-	`(?i)cookie`,
-	`(?i)set-cookie`,
-	`(?i)\bsignature\b`,
+// SensitiveKeySubstrings are the attribute-key fragments masked by default.
+//
+// Substrings rather than regexes, matched case-insensitively, because the
+// field is called "authorization" in one service and "auth_header" in the
+// next — and because a substring scan is roughly an order of magnitude
+// cheaper than a regex per attribute per record. The benchmark made that
+// difference the dominant cost of the whole pipeline.
+//
+// Separators are enumerated instead of matched with a character class for the
+// same reason.
+var SensitiveKeySubstrings = []string{
+	"pass", // password, passwd, passphrase
+	"secret",
+	"token",
+	"apikey", "api_key", "api-key", "api.key",
+	"authoriz",  // authorization
+	"authentic", // authentication
+	"credential",
+	"privatekey", "private_key", "private-key", "private.key",
+	"sessionid", "session_id", "session-id", "session.id",
+	"cookie",
+	"signature",
+}
+
+// defaultBodyTriggers are the literals that must be present for any default
+// body pattern to match. Checking them first turns the common case — a log
+// line with no credential in it — from five regex passes into one scan for
+// literals, which is where most of a real workload lives.
+//
+// It is derived from BodyPatterns by hand and only applies to that set: a
+// custom pattern list disables the prefilter entirely rather than risk a
+// trigger list that silently stops a rule from ever running. A performance
+// optimisation must not be able to turn redaction off.
+var defaultBodyTriggers = []string{
+	"bearer", "basic", "digest", // authorization schemes
+	"eyj",                                                  // JWT header prefix
+	"pass", "secret", "token", "api", "auth", "credential", // key=value shapes
+	"akia", "asia", // AWS access key IDs
+	"-----begin", // PEM blocks
 }
 
 // BodyPatterns are the value shapes masked inside free text by default.
@@ -58,9 +82,14 @@ var BodyPatterns = []string{
 // use — a config is not usable directly, so an invalid rule cannot reach the
 // hot path.
 type RedactionConfig struct {
-	// KeyPatterns are regexes matched against attribute keys; a match masks
-	// the whole value. Nil means SensitiveKeyPatterns. Empty and non-nil
-	// means no key rules.
+	// KeySubstrings are case-insensitive fragments matched against attribute
+	// keys; a match masks the whole value. Nil means SensitiveKeySubstrings.
+	// Empty and non-nil means no substring rules.
+	KeySubstrings []string
+
+	// KeyPatterns are regexes matched against attribute keys, for what a
+	// substring cannot express. They are checked after KeySubstrings and cost
+	// considerably more per attribute, so prefer a substring where one will do.
 	KeyPatterns []string
 	// BodyPatterns are regexes matched against Body and against string
 	// attribute values. Capture group 1, when present, is what gets masked;
@@ -83,10 +112,17 @@ type RedactionConfig struct {
 // Safe for concurrent use: compiled patterns are immutable and regexp.Regexp
 // is safe for concurrent use by design.
 type Redactor struct {
-	keyRules  []*regexp.Regexp
-	bodyRules []*regexp.Regexp
-	skipBody  bool
-	metrics   Metrics
+	// keyMatcher is every key pattern in one alternation. Matching each rule
+	// separately meant one regex evaluation per rule per attribute — with the
+	// default eleven rules and a typical record, over a hundred evaluations to
+	// decide nothing was sensitive. The benchmark put that at the majority of
+	// the pipeline's cost.
+	keySubstrings []string
+	keyMatcher    *regexp.Regexp
+	bodyRules     []*regexp.Regexp
+	bodyTriggers  *triggerScanner
+	skipBody      bool
+	metrics       Metrics
 
 	// failHook is a test seam. Unexported, so it is not API surface and
 	// cannot be reached from outside this package: fail-closed behaviour is
@@ -102,28 +138,57 @@ type Redactor struct {
 // while silently leaking. The error names the offending pattern, since a
 // regex rejected without saying which one is a support ticket.
 func NewRedactor(cfg RedactionConfig) (*Redactor, error) {
-	keyPatterns := cfg.KeyPatterns
-	if keyPatterns == nil {
-		keyPatterns = SensitiveKeyPatterns
+	keySubstrings := cfg.KeySubstrings
+	if keySubstrings == nil {
+		keySubstrings = SensitiveKeySubstrings
 	}
+	usingDefaultBody := cfg.BodyPatterns == nil
 	bodyPatterns := cfg.BodyPatterns
-	if bodyPatterns == nil {
+	if usingDefaultBody {
 		bodyPatterns = BodyPatterns
 	}
 
 	r := &Redactor{skipBody: cfg.SkipBody, metrics: cfg.Metrics}
+	r.keySubstrings = make([]string, len(keySubstrings))
+	for i, sub := range keySubstrings {
+		r.keySubstrings[i] = strings.ToLower(sub)
+	}
 	if r.metrics == nil {
 		r.metrics = NopMetrics{}
 	}
 
-	var err error
-	if r.keyRules, err = compilePatterns("key", keyPatterns); err != nil {
+	// Compiled individually first, so a bad pattern is reported with its own
+	// index rather than as a syntax error inside an alternation nobody wrote.
+	if _, err := compilePatterns("key", cfg.KeyPatterns); err != nil {
 		return nil, err
+	}
+	var err error
+	if r.keyMatcher, err = combinePatterns(cfg.KeyPatterns); err != nil {
+		return nil, fmt.Errorf("combining key patterns: %w", err)
 	}
 	if r.bodyRules, err = compilePatterns("body", bodyPatterns); err != nil {
 		return nil, err
 	}
+	if usingDefaultBody && len(r.bodyRules) > 0 {
+		r.bodyTriggers = newTriggerScanner(defaultBodyTriggers)
+	}
 	return r, nil
+}
+
+// combinePatterns folds patterns into a single alternation.
+//
+// Each is wrapped in a non-capturing group so an inline flag such as (?i)
+// stays scoped to the pattern that declared it. Only MatchString is called on
+// the result, so capture groups inside the inputs do not matter.
+func combinePatterns(patterns []string) (*regexp.Regexp, error) {
+	if len(patterns) == 0 {
+		return nil, nil
+	}
+	parts := make([]string, len(patterns))
+	for i, p := range patterns {
+		parts[i] = "(?:" + p + ")"
+	}
+	return regexp.Compile(strings.Join(parts, "|"))
 }
 
 func compilePatterns(kind string, patterns []string) ([]*regexp.Regexp, error) {
@@ -211,12 +276,15 @@ func (r *Redactor) redactAttributes(attrs map[string]any) {
 }
 
 func (r *Redactor) keyMatches(key string) bool {
-	for _, re := range r.keyRules {
-		if re.MatchString(key) {
-			return true
+	if len(r.keySubstrings) > 0 {
+		lowered := strings.ToLower(key)
+		for _, sub := range r.keySubstrings {
+			if strings.Contains(lowered, sub) {
+				return true
+			}
 		}
 	}
-	return false
+	return r.keyMatcher != nil && r.keyMatcher.MatchString(key)
 }
 
 // RedactString masks every configured pattern in s, replacing the captured
@@ -226,6 +294,12 @@ func (r *Redactor) keyMatches(key string) bool {
 // the behaviour is directly testable.
 func (r *Redactor) RedactString(s string) string {
 	if s == "" {
+		return s
+	}
+	// Nothing a default rule could match is present, so the expensive passes
+	// would all come back empty. Skipped only for the built-in pattern set,
+	// where the triggers are known to cover every rule.
+	if r.bodyTriggers != nil && !r.bodyTriggers.matches(s) {
 		return s
 	}
 	for _, re := range r.bodyRules {
