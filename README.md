@@ -5,22 +5,41 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/JonasBorgesLM/crier/core)](https://goreportcard.com/report/github.com/JonasBorgesLM/crier/core)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A lightweight Go log-control service and library. It ingests application logs,
-normalizes them to the OpenTelemetry Logs data model, redacts what should never
-leave the process, and exports to observability backends through a pluggable
-`Exporter` — embedded in your binary or as the standalone `crierd` daemon.
+A Go log-control service and library. It ingests application logs, normalizes
+them to the OpenTelemetry Logs data model, **redacts what should never leave the
+process**, and exports to observability backends through a pluggable
+`Exporter` — embedded in your binary, or as the standalone `crierd` daemon.
 
-> **Status: pre-release.** The design is complete and recorded in
-> [21 ADRs](docs/adr/README.md); implementation is in progress across
+> **Status: pre-release.** Nothing is tagged yet. The design is recorded in
+> [21 ADRs](docs/adr/README.md) and implemented across
 > [milestones M0–M6](https://github.com/JonasBorgesLM/crier/milestones).
-> Sections below marked *(pending)* are reserved, not yet written.
+
+## See it work
+
+```bash
+docker compose -f demo/compose.yaml up --build
+```
+
+Open **http://localhost:3000**. No login, no data source to configure.
+
+```
+checkout-service ──▶ crierd ──▶ OpenTelemetry Collector ──▶ Loki ──▶ Grafana
+```
+
+Look for the `ERROR` about a failed receipt upload. It was sent with an AWS
+access key in its message and a credential under an `api_key` attribute, and it
+arrives with both as `[REDACTED]`. There is also a record claiming to come from
+`billing-service`, which arrives attributed to `checkout-service`.
+
+Details in [`demo/README.md`](demo/README.md), including how to post a record
+yourself and how to watch readiness fail when you stop the collector.
 
 ## Why
 
 Most log shippers treat their ingestion endpoint as a trusted internal pipe.
-crier does not: it has a [documented threat model](#threat-model), server-derived
-source identity, per-source fair-share admission, and fail-closed redaction —
-and it states plainly what it does *not* guarantee.
+crier does not: it has a [documented threat model](#threat-model),
+server-derived source identity, per-source fair-share admission, and
+fail-closed redaction — and it states plainly what it does *not* guarantee.
 
 ## Delivery semantics — read this first
 
@@ -35,33 +54,53 @@ Stated up front because a reviewer who discovers it later reads it as a bug
 - **`ObservedTimestamp` is authoritative.** The source-asserted `Timestamp` is
   carried through and exported, but never used for a decision — it may be
   absent, skewed, or falsified.
-- **Loss is possible and always counted.** Buffer pressure and shutdown-drain
-  timeouts can drop records; every drop increments a counter tagged with its
-  reason. Silent loss is a defect (ADR-0015).
+- **Loss is possible and always counted.** Buffer pressure, per-source quota,
+  an unreachable backend, and the shutdown drain each increment their own
+  counter, with the reason distinguishable. Silent loss is the one thing that
+  is treated as a defect, and a test derives the list of reasons from the
+  source so a new one cannot be added without being accounted for.
 
 ## Architecture
 
-*(pending — diagram tracked in M5)*
+```mermaid
+flowchart LR
+    subgraph ingest["Ingestion (standalone)"]
+        A["client<br/>POST /v1/logs"] --> B["moat guards<br/>headers · rate limit<br/>content type · body size"]
+        B --> C["authenticate<br/>identity from the<br/>principal, never the body"]
+    end
 
-The pipeline stage order is a contract, not an implementation detail
-(ADR-0010). Only the final stage touches the buffer, so filtered and rejected
-records never consume buffer memory:
+    subgraph pipeline["Pipeline — order is a contract (ADR-0010)"]
+        D["normalize"] --> E["record limits<br/>+ cardinality guard"]
+        E --> F["redact<br/>fail-closed"]
+        F --> G["filter / sample"]
+        G --> H["admit<br/>per-source fair share"]
+    end
 
+    subgraph export["Export"]
+        I["bounded buffer"] --> J["dispatch workers"]
+        J --> K["FanOut"]
+        K --> L["Retry → CircuitBreaker → OTLP"]
+        K --> M["Retry → CircuitBreaker → …"]
+    end
+
+    C --> D
+    H --> I
+    N["host application<br/>(embedded)"] --> D
 ```
-transport limits → parse & validate → attest identity → normalize
-    → record limits → redact → filter/sample → admit
-```
+
+Only the last pipeline stage touches the buffer, so filtered and rejected
+records never consume buffer memory. Steps before `normalize` belong to the
+receiver, because they are about the request rather than the record — which is
+why the embedded path enters at `normalize` and has no receiver at all.
 
 ## Composition
 
 Retry and circuit breaking are **per destination, inside the fan-out**:
 
 ```go
-// Innermost is the exporter, then its breaker, then its retry — so each
-// destination retries its own batch and nobody else's.
 exporter, _ := otlp.New(otlp.Config{Endpoint: "https://collector:4318"})
 breaker, _ := core.NewCircuitBreaker(core.CircuitBreakerConfig{Name: "primary", Exporter: exporter})
-retry, _ := core.NewRetry(core.RetryConfig{Name: "primary", Exporter: breaker})
+retry, _   := core.NewRetry(core.RetryConfig{Name: "primary", Exporter: breaker})
 
 fanOut, _ := core.NewFanOut(core.FanOutConfig{
     Destinations: []core.Destination{{Name: "primary", Exporter: retry}},
@@ -70,24 +109,53 @@ fanOut, _ := core.NewFanOut(core.FanOutConfig{
 
 Building it the other way round — a retry wrapping the fan-out — is a real
 defect, not a style preference. If one destination fails, the whole batch is
-re-sent and a healthy one receives it once per attempt, because an unrelated
-destination is broken. See ADR-0013 and audit finding A-1; the test that pins
-it down is `TestRetryInsideFanOutDoesNotAmplifyToHealthyDestinations`.
+re-sent, and a healthy destination receives it once per attempt because an
+unrelated one is broken. That is audit finding A-1 (ADR-0013).
 
-A bounded pool of workers drains the buffer and hands each batch to the
-fan-out, which dispatches to every destination at once under a per-destination
-deadline (ADR-0016):
+Both orders are pinned by tests: one asserts the healthy destination receives
+the batch exactly once, and one asserts that the wrong order *does* amplify —
+so the reason the rule exists stays checkable rather than becoming a comment.
 
-```go
-dispatcher, _ := core.NewDispatcher(core.DispatcherConfig{Buffer: buffer, Exporter: fanOut})
-dispatcher.Start(ctx)
-...
-dispatcher.Shutdown(drainCtx) // drains, then counts whatever it could not reach
-```
+`core.New` (the embedded API) builds this composition for you, which is most of
+why it exists.
 
-`dispatcher.Degraded()` reports the state where every destination's circuit is
-open — the one readiness must reflect, so an orchestrator stops sending records
-crier cannot export (ADR-0015).
+## Redaction, and its limits
+
+Redaction covers record attributes, resource attributes, **and the message
+body** (ADR-0014). It is **fail-closed**: a record that cannot be masked is
+dropped and counted, never exported unmasked, and that is not configurable.
+
+**Body redaction is pattern-based and best-effort.** A secret interpolated into
+free-form text can only be matched by shape — bearer tokens, JWTs, AWS key IDs,
+`key=value` pairs, PEM blocks. A secret with no recognisable shape and no
+sensitive-looking key will not be caught, and there is a test that documents
+exactly that rather than pretending otherwise.
+
+**Structured attributes are the reliable path**, and also the cheap one:
+
+| | reliability | cost |
+| --- | --- | --- |
+| Attribute, matched by key | deterministic | 948 ns |
+| Message body, matched by shape | best-effort | up to 10 µs |
+
+Put secrets-adjacent values in attributes. That is not a style preference here;
+it is the difference between a control that works and one that usually works.
+
+## Threat model
+
+The ingestion endpoint is an attack surface. Threats explicitly considered, and
+where each is addressed:
+
+| Threat | Mitigation |
+| --- | --- |
+| Log forgery by an unauthenticated caller | Per-source authentication, constant-time credential comparison (ADR-0008) |
+| Source spoofing via client-asserted `service.name` | Identity derived server-side from the authenticated principal; client fields overwritten and the discrepancy counted (ADR-0008) |
+| Credential-store enumeration | An unknown source and a wrong secret return the same error and take the same code path, including a comparison against a decoy |
+| Volume/cost abuse | Per-source fair-share admission, so a noisy source degrades itself rather than its neighbours (ADR-0011, ADR-0019) |
+| Resource exhaustion — oversized bodies, unbounded attributes, high cardinality | Transport and record limits plus a bounded cardinality guard, applied to the embedded path too (ADR-0010) |
+| Sensitive data leaked to a third-party backend | Fail-closed redaction covering attributes *and* body (ADR-0014) |
+| Forged identity headers behind a proxy | Trusted-proxy mode is opt-in; a config trusting every peer refuses to start (ADR-0008, and the same fix `moat` made in `realip`) |
+| A silent feedback loop | An exporter pointed at this instance's own receiver refuses to start (NFR11) |
 
 ## Install
 
@@ -100,8 +168,8 @@ go get github.com/JonasBorgesLM/crier/core                    # the library
 
 ### Embedded library
 
-The same engine, with no receiver: in embedded mode the host application calls
-the engine directly and owns the trust boundary itself.
+The same engine, with no receiver: the host application calls it directly and
+owns the trust boundary itself.
 
 ```go
 crier, err := core.New(core.Options{
@@ -118,14 +186,10 @@ _ = crier.Log(ctx, core.LogRecord{Severity: core.SeverityError, Body: "database 
 summary, err := crier.Shutdown(ctx) // loss at shutdown is reported, never silent
 ```
 
-`core.New` composes each destination as `FanOut(Retry(CircuitBreaker(e)))` for
-you. That order is the one thing a host must not get wrong — see
-[Composition](#composition) — so the embedded API does not leave it to be
-remembered.
-
-Input limits apply here exactly as they do to the HTTP receiver: a bug in the
-host produces the same unbounded attribute map as a malicious client, and the
-buffer cannot tell them apart.
+`Log` returns once the record is buffered, not once it is exported, so your
+request latency does not depend on whether a backend is healthy. Input limits
+apply here exactly as they do to the HTTP receiver: a bug in the host produces
+the same unbounded attribute map as a malicious client.
 
 ### Standalone daemon
 
@@ -136,13 +200,8 @@ crierd -config /etc/crier/config.json
 Configuration is a JSON file plus `CRIER_*` environment overrides, validated at
 startup — a bad redaction rule, a fair-share configuration that over-commits
 the buffer, or a trusted-proxy set covering the default route all refuse to
-start rather than surfacing later. Credentials are read from the environment by
-preference, because a file is committed by accident far more often than an
-environment is.
-
-Two listeners: ingestion (`:4318` by default) and an admin address for probes
-(`127.0.0.1:9464`, loopback on purpose — the readiness reason names which
-destinations are down, which is not for whoever sends logs).
+start. Credentials are read from the environment by preference, because a file
+is committed by accident far more often than an environment is.
 
 | Endpoint | Meaning |
 | --- | --- |
@@ -150,59 +209,78 @@ destinations are down, which is not for whoever sends logs).
 | `GET /healthz` | Liveness. Stays true while degraded and while draining |
 | `GET /readyz` | Readiness. `503` while draining, and while every destination's circuit is open |
 
+Probes are served on a separate address, loopback by default — the readiness
+reason names which destinations are refusing calls, which is operational detail
+for whoever runs crier, not for whoever sends it logs.
+
 **A failing `/readyz` during a backend outage is not a crash loop.** The
-instance is alive, still holding what it buffered, and still probing the
-destinations behind their breakers; it is saying it cannot accept more, which
-is the honest answer. The response body says which destinations are refusing.
+instance is alive, still holding what it buffered, and still probing behind the
+breakers; it is saying it cannot accept more.
 
 On `SIGTERM` the daemon stops accepting, drains within the configured timeout,
 and logs a final line saying how many records were lost and to which
 destinations. Loss at shutdown is permitted; silent loss is not.
 
-## Threat model
+## Wire format
 
-The ingestion endpoint is an attack surface. Threats explicitly considered, and
-where each is addressed:
+`POST /v1/logs`, `application/json`. **Unknown fields are rejected and the
+error names the offending one** (ADR-0012): a service that misspells
+`severityText` and receives `202` looks healthy while emitting records with no
+severity.
 
-| Threat | Mitigation |
-| --- | --- |
-| Log forgery by an unauthenticated caller | Per-source authentication, constant-time credential comparison (ADR-0008) |
-| Source spoofing via client-asserted `service.name` | Identity derived server-side from the authenticated principal; client fields overwritten and the discrepancy counted (ADR-0008) |
-| Volume/cost abuse | Per-source fair-share admission, so a noisy source degrades itself rather than its neighbours (ADR-0011) |
-| Resource exhaustion — oversized bodies, unbounded attributes, high cardinality | Configurable input limits and a bounded cardinality guard (ADR-0010) |
-| Sensitive data leaked to a third-party backend | Fail-closed redaction covering attributes *and* body (ADR-0014) |
-| Forged identity headers behind a proxy | Trusted-proxy mode is opt-in; a config trusting every peer refuses to start (ADR-0008) |
+```bash
+curl -i localhost:4318/v1/logs \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer checkout-service:<credential>' \
+  -d '{"records":[{"severityNumber":9,"body":"hello"}]}'
+```
 
-Body redaction is **best-effort and pattern-based**. Structured attributes are
-preferred precisely because they can be redacted reliably; a secret interpolated
-into free-form text can only be matched heuristically.
+Adding optional fields is backwards-compatible; renaming, removing, or
+retyping one — in the request *or* the response — requires a new path version
+(ADR-0021).
 
 ## Benchmarks
 
 Measured with every stage enabled — limits, cardinality guard, redaction,
-filtering, admission — because that is how the pipeline runs. Apple M1, Go 1.26.
+filtering, admission — because that is how the pipeline runs. Apple M1.
 
 | Path | ns/op | allocs/op |
 | --- | --- | --- |
-| Full pipeline, message with no credential (the common case) | 2,095 | 8 |
-| Full pipeline, message containing a credential (worst case) | 12,180 | 10 |
-| Full pipeline, 8 cores contended | 3,689 | 10 |
-| Body scan, nothing to mask | 37 | 0 |
-| Cardinality guard | 698 | 8 |
-| Per-source admission | 104 | 1 |
+| Full pipeline, message with no credential (the common case) | 2,086 | 7 |
+| Full pipeline, message containing a credential (worst case) | 12,128 | 10 |
+| Full pipeline, 8 cores contended | 3,813 | 10 |
+| Body scan, nothing to mask | 38 | 0 |
+| Cardinality guard | 705 | 8 |
+| Per-source admission | 106 | 1 |
 
-Body redaction is the cost — everything else together is under 1 µs. That is
-the concrete reason structured attributes are preferred over interpolated
-message text: attribute-level redaction is reliable *and* cheap.
+Body redaction is **8% of the common-case path and 84% of the worst case**.
+Everything else together is under 1 µs. That asymmetry is the concrete reason
+structured attributes are preferred over interpolated message text.
 
-Full results, including two performance defects this benchmark found and the
-one still outstanding, are in [`docs/benchmarks.md`](docs/benchmarks.md).
+Full results — including the attribution by difference, two performance defects
+this benchmark found, and the one deliberately left open — are in
+[`docs/benchmarks.md`](docs/benchmarks.md).
+
+## Verification
+
+Every push runs, per module: `go build`, `go vet`, `gofmt`, `go mod tidy`
+verification, `go test -race -shuffle=on`, `golangci-lint`, and `govulncheck`.
+Two guards run alongside them: `core` must have no third-party dependencies,
+and no library module may depend on gRPC (ADR-0018). The OTLP exporter is also
+tested against a real OpenTelemetry Collector in a container.
+
+Test coverage at the time of writing: `core` 96.2%, `receivers/http` 94.3%,
+`exporters/otlp` 90.5%, `cmd/crierd` 81.0%. Reproduce with `go test -cover ./...`
+in each module.
 
 ## Documentation
 
 - [Requirements](REQUIREMENTS.md) — functional, non-functional, ecosystem
 - [Architecture Decision Records](docs/adr/README.md) — 21 decisions, with amendments
+- [Benchmarks](docs/benchmarks.md) — hot-path measurements and what they found
+- [Ecosystem integrations](docs/integrations/README.md) — `task-api`, `gateway-auth`, `moat`
 - [Audit log](docs/audit-log.md) — review passes, findings, and who performed them
+- [Demo](demo/README.md) — the one-command end-to-end stack
 - [Contributing](CONTRIBUTING.md)
 
 ## License
