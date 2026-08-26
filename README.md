@@ -91,17 +91,73 @@ crier cannot export (ADR-0015).
 
 ## Install
 
-*(pending — tracked in M4/M5)*
+```bash
+go install github.com/JonasBorgesLM/crier/cmd/crierd@latest   # the daemon
+go get github.com/JonasBorgesLM/crier/core                    # the library
+```
 
 ## Usage
 
 ### Embedded library
 
-*(pending — tracked in M4)*
+The same engine, with no receiver: in embedded mode the host application calls
+the engine directly and owns the trust boundary itself.
+
+```go
+crier, err := core.New(core.Options{
+    ServiceName: "task-api",
+    Exporters:   map[string]core.Exporter{"primary": otlpExporter},
+    Limits:      core.Limits{MaxAttributes: 64},
+})
+if err != nil {
+    return err
+}
+
+_ = crier.Log(ctx, core.LogRecord{Severity: core.SeverityError, Body: "database unreachable"})
+
+summary, err := crier.Shutdown(ctx) // loss at shutdown is reported, never silent
+```
+
+`core.New` composes each destination as `FanOut(Retry(CircuitBreaker(e)))` for
+you. That order is the one thing a host must not get wrong — see
+[Composition](#composition) — so the embedded API does not leave it to be
+remembered.
+
+Input limits apply here exactly as they do to the HTTP receiver: a bug in the
+host produces the same unbounded attribute map as a malicious client, and the
+buffer cannot tell them apart.
 
 ### Standalone daemon
 
-*(pending — tracked in M4)*
+```bash
+crierd -config /etc/crier/config.json
+```
+
+Configuration is a JSON file plus `CRIER_*` environment overrides, validated at
+startup — a bad redaction rule, a fair-share configuration that over-commits
+the buffer, or a trusted-proxy set covering the default route all refuse to
+start rather than surfacing later. Credentials are read from the environment by
+preference, because a file is committed by accident far more often than an
+environment is.
+
+Two listeners: ingestion (`:4318` by default) and an admin address for probes
+(`127.0.0.1:9464`, loopback on purpose — the readiness reason names which
+destinations are down, which is not for whoever sends logs).
+
+| Endpoint | Meaning |
+| --- | --- |
+| `POST /v1/logs` | Ingestion. `202` means admitted to the buffer, not exported |
+| `GET /healthz` | Liveness. Stays true while degraded and while draining |
+| `GET /readyz` | Readiness. `503` while draining, and while every destination's circuit is open |
+
+**A failing `/readyz` during a backend outage is not a crash loop.** The
+instance is alive, still holding what it buffered, and still probing the
+destinations behind their breakers; it is saying it cannot accept more, which
+is the honest answer. The response body says which destinations are refusing.
+
+On `SIGTERM` the daemon stops accepting, drains within the configured timeout,
+and logs a final line saying how many records were lost and to which
+destinations. Loss at shutdown is permitted; silent loss is not.
 
 ## Threat model
 
