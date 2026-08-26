@@ -24,10 +24,12 @@ the time remains readable.
 | [0013](0013-retry-and-fanout-layering.md) | Retry, circuit breaking, and fan-out layering | Accepted — corrects audit finding A-1 | — |
 | [0014](0014-redaction-scope-and-failure-policy.md) | Redaction scope and failure policy | Accepted — closes audit findings A-2, A-3 | — |
 | [0015](0015-degradation-and-drain-accounting.md) | Degradation under sustained export failure, and drain accounting | Accepted — closes audit findings A-4, A-5 | — |
+| [0016](0016-export-worker-topology.md) | Export worker topology and failure isolation | Accepted — resolves ADR-0013's open question | — |
 
 ADR-0008 through ADR-0012 came out of the first review pass; ADR-0013 through
 ADR-0015 out of the second. Both passes are recorded in
-[`../audit-log.md`](../audit-log.md).
+[`../audit-log.md`](../audit-log.md). ADR-0016 came out of implementing the
+export layer, resolving a question ADR-0013 left open on purpose.
 
 ## Open questions
 
@@ -35,10 +37,9 @@ Decisions deferred deliberately, each owned by an issue on the board. They are
 listed here rather than left implicit, because an undecided question that looks
 decided is the one that gets implemented by accident.
 
-- **Export worker topology.** ADR-0013 requires that a slow exporter must not
-  serialize its siblings, but leaves the mechanism open: per-exporter worker
-  pools, or concurrent dispatch inside `FanOut`. To be decided and recorded as
-  a new ADR before the export layer is implemented.
+None outstanding. The one that stood here — export worker topology, left open
+by ADR-0013 — was decided in
+[ADR-0016](0016-export-worker-topology.md) before the export layer was written.
 
 ## Conventions
 
