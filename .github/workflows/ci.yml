@@ -44,6 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       modules: ${{ steps.find.outputs.modules }}
+      libraries: ${{ steps.find.outputs.libraries }}
     steps:
       - uses: actions/checkout@v4
       - id: find
@@ -52,6 +53,24 @@ jobs:
             -exec dirname {} \; | sed 's|^\./||' | sort | jq -R . | jq -sc .)
           echo "modules=$modules" >> "$GITHUB_OUTPUT"
           echo "Discovered: $modules"
+
+          # Library modules — the ones NFR2's first policy applies to, because
+          # somebody may import them. Derived rather than listed: a hand-kept
+          # list is a list someone forgets to extend, and the module it forgets
+          # is the one that silently stops being checked.
+          #
+          # cmd/ is excluded by rule, not by name. NFR2 draws that line itself:
+          # nobody imports a binary, so a command module is free to depend on
+          # something the library floor could not carry.
+          #
+          # TEST_ONLY names modules that exist only to run tests and are never
+          # published. Forgetting to add one here is loud — the module lands in
+          # the guard and fails it — which is the right direction to fail in.
+          TEST_ONLY='["exporters/otlp/integration"]'
+          libraries=$(printf '%s' "$modules" | jq -c --argjson testonly "$TEST_ONLY" \
+            '[ .[] | select(startswith("cmd/") | not) | select(. as $m | $testonly | index($m) | not) ]')
+          echo "libraries=$libraries" >> "$GITHUB_OUTPUT"
+          echo "Library modules: $libraries"
 
   test:
     name: test (${{ matrix.module }})
@@ -162,11 +181,12 @@ jobs:
   # refactor; this does.
   no-grpc-in-libraries:
     name: library modules do not depend on gRPC
+    needs: discover
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        module: [core, exporters/otlp, receivers/http]
+        module: ${{ fromJSON(needs.discover.outputs.libraries) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
