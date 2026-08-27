@@ -45,6 +45,7 @@ jobs:
     outputs:
       modules: ${{ steps.find.outputs.modules }}
       libraries: ${{ steps.find.outputs.libraries }}
+      test_only: ${{ steps.find.outputs.test_only }}
     steps:
       - uses: actions/checkout@v7
       - id: find
@@ -77,6 +78,9 @@ jobs:
             '[ .[] | select(startswith("cmd/") | not) | select(. as $m | $testonly | index($m) | not) ]')
           echo "libraries=$libraries" >> "$GITHUB_OUTPUT"
           echo "Library modules: $libraries"
+
+          echo "test_only=$TEST_ONLY" >> "$GITHUB_OUTPUT"
+          echo "Test-only modules: $TEST_ONLY"
 
   test:
     name: test (${{ matrix.module }})
@@ -176,16 +180,25 @@ jobs:
   # container (NFR6). It is behind a build tag, so the matrix job above runs
   # none of it — this is the job that actually exercises it.
   integration:
-    name: integration (otlp)
+    name: integration (${{ matrix.module }})
+    needs: discover
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Derived, not named. This job used to hardcode the one integration
+        # module that exists; a second would have been skipped in silence,
+        # which is the failure mode this repository keeps finding in
+        # hand-kept lists.
+        module: ${{ fromJSON(needs.discover.outputs.test_only) }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: exporters/otlp/integration/go.mod
+          cache-dependency-path: ${{ matrix.module }}/go.mod
       - name: go test -tags=integration
-        working-directory: exporters/otlp/integration
+        working-directory: ${{ matrix.module }}
         # The suite skips itself when there is no container runtime, which is
         # right for a developer without Docker and wrong here: a skipped suite
         # exits 0, so the job would go green having tested nothing against a
@@ -240,6 +253,24 @@ jobs:
           fi
           echo "${{ matrix.module }} has no gRPC in its module graph."
 
+  # Two lists in this repository are hand-kept and cannot be derived: the
+  # Dependabot directories and the release tag patterns, neither of which
+  # accepts an expression. Each has already been found missing an entry once,
+  # and each time the symptom was silence — an unwatched module, an
+  # unreleasable one. The lists stay hand-kept; the omission does not stay
+  # quiet.
+  module-coverage:
+    name: every module is watched and releasable
+    needs: discover
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check Dependabot and release coverage
+        run: |
+          ./.github/scripts/module-coverage.py \
+            '${{ needs.discover.outputs.modules }}' \
+            '${{ needs.discover.outputs.test_only }}'
+
   lint:
     name: lint (${{ matrix.module }})
     needs: discover
@@ -287,7 +318,7 @@ jobs:
   ci-ok:
     name: CI OK
     if: always()
-    needs: [test, integration, lint, govulncheck, core-has-no-third-party-deps, no-grpc-in-libraries]
+    needs: [test, integration, lint, govulncheck, core-has-no-third-party-deps, no-grpc-in-libraries, module-coverage]
     runs-on: ubuntu-latest
     steps:
       - name: Fail if any dependency failed

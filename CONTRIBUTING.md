@@ -148,6 +148,32 @@ git push origin --delete feature/m1-core-engine           # safe: base is develo
 The PR survives this with its body, review history and checks intact, so there
 is no reason to open a replacement.
 
+## Reviewing a Dependabot pull request
+
+Two things go wrong here often enough to be written down.
+
+**A gomod bump arrives incomplete.** Dependabot updates one directory per pull
+request, and the modules are linked by `replace` — so raising a dependency in
+`exporters/otlp` changes what `cmd/crierd` resolves while leaving its `go.mod`
+behind. CI then fails in the *dependent* module, not the edited one, which
+sends you looking in the wrong place. Finish the bump by hand across every
+module that pins the dependency and land it as one commit; #58 is the worked
+example.
+
+**Never ask Dependabot to rebase a pull request you retargeted.** Dependabot
+opens against the branch in its own configuration, and `@dependabot rebase`
+restores that target — silently undoing a `gh pr edit --base develop`. That is
+how #63 merged into `main` and put the branches back out of step.
+
+- The durable fix is already in place: `target-branch: develop` on every entry
+  in [`.github/dependabot.yml`](.github/dependabot.yml), so anything opened
+  from now on targets the right branch to begin with.
+- If a PR still arrives against `main` — an older one, or a config that got
+  edited — close it and let Dependabot reopen it, rather than retargeting.
+- If it has already merged into `main`, merge `main` into `develop` and take
+  both sides. Do not revert: the bump was wanted, it just arrived through the
+  wrong door.
+
 ## Tests
 
 - Table-driven, with `t.Run` subtests.
