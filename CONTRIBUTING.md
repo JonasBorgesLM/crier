@@ -59,8 +59,30 @@ supersedes the old, not an edit:
 ## Pull requests
 
 - Branch from `develop`: `feature/<short-slug>`, `fix/<short-slug>`,
-  `docs/<short-slug>`. Releases branch `release/vX.Y.Z` off `develop`;
-  urgent fixes branch `hotfix/vX.Y.Z` off `main`.
+  `docs/<short-slug>`. Urgent fixes branch `hotfix/vX.Y.Z` off `main`.
+
+### `develop` and `main`
+
+**`develop` is where work lands. `main` is what has been released.**
+
+- Every pull request targets `develop`. Nothing targets `main` directly.
+- At each release, `develop` merges into `main`, and the tags are cut there.
+  `main` is therefore always a released state, and it is also what GitHub shows
+  a visitor — those being the same thing is the point.
+- The release's own commits — the `go.mod` edits that swap a local `replace`
+  for a published version, see [`RELEASING.md`](RELEASING.md) — are made on
+  `main` during the release, and `main` is merged back into `develop` when it
+  finishes.
+
+That last step is not bookkeeping. Without it the two branches diverge in every
+dependent `go.mod`, which is the file the release exists to change — and `main`
+spent M0 through M6 holding only an initial commit precisely because nobody had
+written down when it should have been updated.
+
+**Once the replaces are dropped, local development needs a `go.work`.** A
+`replace` is what makes a change to `core` visible to `exporters/otlp` without
+publishing `core` first; when the release removes it, `go.work` is what takes
+over. Adding it is part of the release, not a follow-up.
 - Tagging a release has an order that is not optional — a dependent module
   tagged before `core` publishes something no consumer can resolve. See
   [`RELEASING.md`](RELEASING.md) before your first tag.

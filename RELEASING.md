@@ -60,21 +60,27 @@ gh api repos/JonasBorgesLM/crier/private-vulnerability-reporting
 It was found disabled during the `moat` release and again here, which is twice,
 so it is a checklist item rather than an assumption.
 
-## Which branch, and a note about `main`
+## Which branch
 
-Every commit below lands on `develop`, and each tag points at a commit there.
+**Tags are cut on `main`, and every commit in this procedure is made there.**
+
+`develop` is where work lands; `main` is what has been released, and it is what
+GitHub shows a visitor. Those being the same thing is deliberate — see
+[`CONTRIBUTING.md`](CONTRIBUTING.md#develop-and-main).
+
+So a release starts by bringing `main` up to date:
+
+```bash
+git checkout main && git pull --ff-only
+git merge --no-ff develop -m "Merge develop into main for the vX.Y.Z release"
+git push origin main
+```
+
+and finishes by merging it back, which is step 4 below.
 
 **Push the commit before pushing the tag.** A tag pushed on its own carries its
 commit but moves no branch, leaving a release that points at a commit on no
 branch — recoverable, but confusing to everyone who looks later.
-
-> **`main` currently holds only the initial commit**: a `.gitignore`, a
-> `LICENSE`, and the pre-M5 `README.md`. It is the repository's default branch,
-> so it is what GitHub shows a visitor. Tags resolve independently of branches,
-> so this does not affect `go get` — but releasing v0.1.0 while the front page
-> shows an empty repository undoes the work M5 did to make the first two
-> minutes count. Decide before tagging whether `develop` merges to `main`
-> first.
 
 ## The order
 
@@ -133,7 +139,7 @@ GOPROXY=https://proxy.golang.org go list -m github.com/JonasBorgesLM/crier/core@
 fake version a consumer would, which is how the problem was found in the first
 place.
 
-### 3. `cmd/crierd` last
+### 3. `cmd/crierd` third
 
 It depends on all three. Drop every `replace`, require the published versions,
 verify, commit, tag — the same `go mod edit` shape as step 2, with three
@@ -144,11 +150,36 @@ test-only, it is never published, and no tag pattern matches it. "Drop every
 replace" is about the modules being released; touching this one only breaks
 local development.
 
-**Keeping the replaces for local development** is a separate question. Removing
-them means every local change to `core` needs a tagged `core` before the
-dependents see it. A `go.work` file at the repository root gives local
-resolution without shipping it in any module's `go.mod`, and is the usual answer
-— it is not set up here yet.
+### 4. Merge back, and restore local resolution
+
+```bash
+git checkout develop
+git merge --no-ff main -m "Merge main back after the vX.Y.Z release"
+```
+
+Without this, `develop` and `main` differ in every dependent `go.mod` — the
+exact file the release changed — and the divergence grows with each release.
+
+**The dropped replaces have to be replaced by something.** A `replace` is what
+made a local change to `core` visible to `exporters/otlp` without publishing
+`core` first; once it is gone, a `go.work` at the repository root takes over,
+giving local resolution without appearing in any module's published `go.mod`:
+
+```bash
+go work init ./core ./exporters/otlp ./exporters/otlp/integration ./receivers/http ./cmd/crierd
+```
+
+This is part of the release, not a follow-up: between dropping the replaces and
+adding `go.work`, no local change to `core` is visible anywhere else in the
+tree.
+
+**CI must then set `GOWORK=off`.** A committed `go.work` resolves every module
+to the local directory, so CI would build against the working tree and never
+check that the published versions actually resolve — a green build proving the
+opposite of what it is there to prove. That is the failure class CLAUDE.md's
+"a check must fail when it cannot run" is about, arriving through a
+convenience. Either commit `go.work` and set `GOWORK=off` in the workflows, or
+leave it untracked in `.gitignore` and let each developer create their own.
 
 ## Rehearsing it without publishing
 
