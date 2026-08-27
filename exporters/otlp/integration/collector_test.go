@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -146,23 +147,36 @@ func freePort(t *testing.T) int {
 	return addr.Port
 }
 
-// requireDocker skips rather than fails when there is no container runtime.
+// requireDocker skips rather than fails when there is no container runtime —
+// unless CRIER_REQUIRE_DOCKER says a runtime was promised.
 //
 // A developer without Docker should see the suite step aside, not a wall of
-// red that says nothing about their change. CI has a runtime and runs it for
-// real.
+// red that says nothing about their change. CI is the opposite case: a skipped
+// suite exits 0, so without this the integration job goes green having tested
+// nothing against a real collector, and the only signal is a line in a log
+// nobody reads. Where Docker is guaranteed, its absence is a failure.
 func requireDocker(t *testing.T) {
 	t.Helper()
+
+	unavailable := func(format string, args ...any) {
+		t.Helper()
+		if os.Getenv("CRIER_REQUIRE_DOCKER") != "" {
+			t.Fatalf("CRIER_REQUIRE_DOCKER is set, so a container runtime was expected: "+format, args...)
+		}
+		t.Skipf(format, args...)
+	}
+
 	provider, err := testcontainers.NewDockerProvider()
 	if err != nil {
-		t.Skipf("no container runtime: %v", err)
+		unavailable("no container runtime: %v", err)
+		return
 	}
 	defer func() { _ = provider.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := provider.Health(ctx); err != nil {
-		t.Skipf("container runtime is not healthy: %v", err)
+		unavailable("container runtime is not healthy: %v", err)
 	}
 }
 
