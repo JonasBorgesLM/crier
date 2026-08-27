@@ -190,7 +190,7 @@ GitHub.
 ```bash
 SIM=$(mktemp -d)
 git clone --bare . "$SIM/crier.git"
-git -C "$SIM/crier.git" tag -a core/v0.1.0 develop -m "simulation"
+git -C "$SIM/crier.git" tag -a core/v0.1.0 main -m "simulation"
 
 cat > "$SIM/gitconfig" <<EOF
 [url "$SIM/crier.git"]
@@ -200,13 +200,33 @@ EOF
 export GIT_CONFIG_GLOBAL="$SIM/gitconfig"
 export GOPRIVATE='github.com/JonasBorgesLM/*'
 export GOFLAGS=-mod=mod
+export GOMODCACHE="$SIM/gomodcache"
 
-git worktree add --detach "$SIM/wt" develop
+git worktree add --detach "$SIM/wt" main
 # now run the steps above inside $SIM/wt, tagging in $SIM/crier.git as you go
 ```
 
 Go resolves the modules from that clone exactly as it would from GitHub, so a
 step that fails here fails in production too.
+
+**`GOMODCACHE` is what makes that sentence true.** It is not hygiene: without
+it the sentence is false. The shared module cache outlives the rehearsal, so a
+later run resolves versions an earlier one published and finds them whether or
+not this run tagged anything. A run of this procedure reported `cmd/crierd OK`
+with `exporters/otlp/v0.1.0` and `receivers/http/v0.1.0` never created — the
+tagging order A-9 is about, which is the one thing the rehearsal exists to
+prove, was exactly what the warm cache hid. Pointed at `$SIM`, the cache is
+born with the rehearsal and dies with it, and step 3 fails as it should:
+
+```
+reading .../exporters/otlp/go.mod at revision exporters/otlp/v0.1.0:
+    unknown revision exporters/otlp/v0.1.0
+```
+
+Two details that follow from it: the outside-consumer step below must run in
+the same shell so it inherits the cold cache, and `rm -rf "$SIM"` will not
+remove the cache afterwards, because module cache entries are read-only. Run
+`GOMODCACHE="$SIM/gomodcache" go clean -modcache` first.
 
 **Finish with an outside consumer**, because that is the failure A-9 is about
 and the only check that actually reproduces it:
