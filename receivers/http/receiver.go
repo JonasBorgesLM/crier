@@ -110,8 +110,12 @@ type ingestResponse struct {
 	// discarded is an operator's question, answered by the RecordsFiltered
 	// metric, not the caller's.
 	Accepted int `json:"accepted"`
-	// Rejected is how many the receiver refused.
-	Rejected int `json:"rejected,omitempty"`
+	// Rejected is how many the receiver refused. It is always present, zero
+	// included: omitting it on a fully accepted batch saves a handful of
+	// bytes and hands every client the same bug, which is reading an absent
+	// field as "unknown" rather than as zero. A count that is sometimes
+	// there is worse to consume than one that always is.
+	Rejected int `json:"rejected"`
 	// Reason explains the rejected ones, when there are any.
 	Reason string `json:"reason,omitempty"`
 }
