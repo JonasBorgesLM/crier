@@ -1,0 +1,212 @@
+name: Release
+
+# Modules are versioned and tagged independently (ADR-0003, NFR3):
+#   core/v0.1.0            exporters/otlp/v0.1.0            cmd/crierd/v0.1.0
+# The tag prefix selects which module is being released.
+on:
+  push:
+    tags:
+      - "core/v*"
+      - "exporters/*/v*"
+      - "receivers/*/v*"
+      - "cmd/crierd/v*"
+      # A tag pattern is a list someone forgets to extend, and the module it
+      # forgets is one that cannot be released at all. receivers/http was
+      # missing until the M6 audit looked for it. `*` does not match `/`, so
+      # exporters/otlp/integration — test-only, never published — still cannot
+      # be tagged into a release by accident.
+
+permissions:
+  contents: read
+
+# NFR2's two toolchain policies. Same names, same values, and the same meaning
+# as in ci.yml — a release must not be built on a different toolchain from the
+# one CI exercised. Change them together.
+env:
+  GO_VERSION: "1.24"
+  GO_SUPPORTED_VERSION: "stable"
+
+jobs:
+  resolve:
+    name: Resolve module from tag
+    runs-on: ubuntu-latest
+    outputs:
+      module: ${{ steps.parse.outputs.module }}
+      version: ${{ steps.parse.outputs.version }}
+      is_binary: ${{ steps.parse.outputs.is_binary }}
+      toolchain: ${{ steps.parse.outputs.toolchain }}
+    steps:
+      - id: parse
+        run: |
+          tag='${{ github.ref_name }}'
+          module="${tag%/v*}"
+          version="v${tag##*/v}"
+          echo "module=$module"   >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # Only cmd/ modules ship binaries; the rest are consumed as libraries.
+          # That is the same distinction NFR2's two toolchain policies turn on,
+          # so it decides both here rather than being restated somewhere else
+          # and drifting: a binary is built on the supported toolchain because
+          # that toolchain is the standard library shipped inside it; a library
+          # is built at the floor it promises importers.
+          case "$module" in
+            cmd/*)
+              echo "is_binary=true" >> "$GITHUB_OUTPUT"
+              echo "toolchain=$GO_SUPPORTED_VERSION" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "is_binary=false" >> "$GITHUB_OUTPUT"
+              echo "toolchain=$GO_VERSION" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+  verify:
+    name: Verify ${{ needs.resolve.outputs.module }}
+    needs: resolve
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ needs.resolve.outputs.toolchain }}
+          cache-dependency-path: ${{ needs.resolve.outputs.module }}/go.mod
+
+      - name: Report the toolchain in use
+        run: echo "${{ needs.resolve.outputs.module }} is verified with $(go version)"
+
+      # A tag is immutable once anyone has fetched it. Everything that can fail
+      # is checked before the release exists, never after.
+      - name: Build, vet, test
+        working-directory: ${{ needs.resolve.outputs.module }}
+        run: |
+          go build ./...
+          go vet ./...
+          go test -race ./...
+
+      # Deliberately not the module's own toolchain. A library is verified at
+      # its floor, and Go 1.24 is past its support window, so scanning there
+      # reports standard-library findings no change to this repository can
+      # resolve — and would block every library release on them.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_SUPPORTED_VERSION }}
+          cache-dependency-path: ${{ needs.resolve.outputs.module }}/go.mod
+
+      - name: govulncheck
+        working-directory: ${{ needs.resolve.outputs.module }}
+        run: |
+          go version
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+      # NFR9: the changelog is generated from the real API diff, not written
+      # from memory. A hand-written changelog documents what the author meant
+      # to change; this documents what actually changed.
+      - name: Generate API diff
+        working-directory: ${{ needs.resolve.outputs.module }}
+        run: |
+          go install golang.org/x/exp/cmd/gorelease@latest
+          gorelease > "$RUNNER_TEMP/apidiff.txt" 2>&1 || true
+          cat "$RUNNER_TEMP/apidiff.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apidiff
+          path: ${{ runner.temp }}/apidiff.txt
+
+  binaries:
+    name: Build binaries
+    needs: [resolve, verify]
+    if: needs.resolve.outputs.is_binary == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { goos: linux,   goarch: amd64 }
+          - { goos: linux,   goarch: arm64 }
+          - { goos: darwin,  goarch: amd64 }
+          - { goos: darwin,  goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ needs.resolve.outputs.toolchain }}
+          cache-dependency-path: ${{ needs.resolve.outputs.module }}/go.mod
+
+      - name: Report the toolchain in use
+        run: echo "${{ needs.resolve.outputs.module }} binaries are built with $(go version)"
+
+      - name: Build
+        working-directory: ${{ needs.resolve.outputs.module }}
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          name="crierd_${{ needs.resolve.outputs.version }}_${GOOS}_${GOARCH}"
+          [ "$GOOS" = "windows" ] && name="${name}.exe"
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${{ needs.resolve.outputs.version }}" \
+            -o "$RUNNER_TEMP/$name" .
+          (cd "$RUNNER_TEMP" && sha256sum "$name" > "$name.sha256")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            ${{ runner.temp }}/crierd_*
+
+  release:
+    name: Publish release
+    needs: [resolve, verify, binaries]
+    # binaries is skipped for library modules; skipped must not block the release.
+    if: always() && needs.verify.result == 'success' && needs.binaries.result != 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/artifacts
+
+      - name: Assemble release notes
+        run: |
+          notes="$RUNNER_TEMP/notes.md"
+          {
+            printf '## %s %s\n\n' \
+              '${{ needs.resolve.outputs.module }}' \
+              '${{ needs.resolve.outputs.version }}'
+            printf '### API changes\n\n```\n'
+            cat "$RUNNER_TEMP/artifacts/apidiff/apidiff.txt" 2>/dev/null \
+              || echo "(no API diff available)"
+            printf '```\n'
+          } > "$notes"
+          cat "$notes"
+
+      - name: Verify the tag is signed
+        run: |
+          # NFR9. A release nobody can attribute is worth less than no release.
+          if ! git verify-tag '${{ github.ref_name }}' 2>/dev/null; then
+            echo "::warning::tag ${{ github.ref_name }} is not signed or its key is unknown to CI"
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          find "$RUNNER_TEMP/artifacts" -type f -name 'crierd_*' \
+            -exec cp {} "$RUNNER_TEMP"/ \; 2>/dev/null || true
+          shopt -s nullglob
+          assets=("$RUNNER_TEMP"/crierd_*)
+          gh release create '${{ github.ref_name }}' \
+            --repo '${{ github.repository }}' \
+            --title '${{ needs.resolve.outputs.module }} ${{ needs.resolve.outputs.version }}' \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            --verify-tag \
+            "${assets[@]}"

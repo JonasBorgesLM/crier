@@ -1,0 +1,31 @@
+{
+  "listen": ":4318",
+  "adminListen": "0.0.0.0:9464",
+  "drainTimeout": "10s",
+
+  "buffer": {
+    "capacity": 5000,
+    "batchSize": 64,
+    "batchWindow": "1s",
+    "policy": "reject",
+    "workers": 2,
+    "reservations": { "checkout-service": 1000 },
+    "unlistedPool": 1000
+  },
+
+  "limits": {
+    "maxAttributes": 64,
+    "maxKeyBytes": 256,
+    "maxValueBytes": 8192,
+    "maxBodyBytes": 65536,
+    "maxDistinctValues": 200
+  },
+
+  "exporters": [
+    {
+      "name": "collector",
+      "endpoint": "http://collector:4318",
+      "compression": "gzip"
+    }
+  ]
+}

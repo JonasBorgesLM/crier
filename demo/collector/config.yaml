@@ -1,0 +1,32 @@
+# The collector the demo exports to. crier speaks OTLP/HTTP (ADR-0017), so
+# nothing here is crier-specific — this is the same config any OTLP producer
+# would need.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 1s
+
+exporters:
+  # Loki 3 ingests OTLP natively; the otlphttp exporter appends /v1/logs.
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+
+  # Also to stdout, so `docker compose logs collector` shows the records
+  # arriving without opening a browser.
+  debug:
+    verbosity: basic
+
+service:
+  telemetry:
+    logs:
+      level: warn
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/loki, debug]

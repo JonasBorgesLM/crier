@@ -1,0 +1,31 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "ci"
+
+  # One entry per module (ADR-0003): Dependabot does not discover nested
+  # go.mod files on its own, so a new exporter module needs a new entry here.
+  - package-ecosystem: gomod
+    directory: "/core"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "build"
+
+  - package-ecosystem: gomod
+    directory: "/exporters/otlp"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "build"
+
+  - package-ecosystem: gomod
+    directory: "/cmd/crierd"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "build"

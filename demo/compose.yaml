@@ -1,0 +1,99 @@
+# crier end-to-end demo (IR5).
+#
+#   checkout-service -> crierd -> OpenTelemetry Collector -> Loki -> Grafana
+#
+# One command, no editing:
+#
+#   docker compose -f demo/compose.yaml up --build
+#
+# Then open http://localhost:3000 — it lands on the dashboard, no login.
+#
+# Every image is pinned. A demo is the part of a repository that rots on its
+# own: an image that moves, a collector release that changes a config key, and
+# the one thing a reviewer tries first is the one thing that fails.
+name: crier-demo
+
+services:
+  # The example service. Posts logs over the v1 wire format, including one that
+  # carries a secret on purpose.
+  checkout-service:
+    image: alpine:3.21
+    depends_on:
+      crierd:
+        condition: service_healthy
+    volumes:
+      - ./generator/generate.sh:/generate.sh:ro
+    entrypoint: ["/bin/sh", "/generate.sh"]
+    environment:
+      CRIER_SOURCE: checkout-service
+      CRIER_TOKEN: demo-ingest-token
+      CRIER_INTERVAL: "3"
+    restart: unless-stopped
+
+  # crier itself.
+  crierd:
+    build:
+      # The repository root: crierd is a module with replace directives onto
+      # its siblings, so the build needs all of them.
+      context: ..
+      dockerfile: demo/Dockerfile
+    depends_on:
+      collector:
+        condition: service_started
+    command: ["-config", "/etc/crier/config.json"]
+    volumes:
+      - ./crier/config.json:/etc/crier/config.json:ro
+    environment:
+      # Credentials come from the environment rather than the config file: a
+      # file is committed by accident far more often than an environment is.
+      # CRIER_SOURCES names who may send; the per-source variable carries the
+      # secret. This one is a demo token and is meant to be public.
+      CRIER_SOURCES: checkout-service
+      CRIER_CREDENTIAL_CHECKOUT_SERVICE: demo-ingest-token
+    ports:
+      # Exposed so you can post a record yourself — see demo/README.md.
+      - "4318:4318"
+      - "9464:9464"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9464/readyz"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+      start_period: 3s
+    restart: unless-stopped
+
+  collector:
+    image: otel/opentelemetry-collector:0.159.0
+    depends_on:
+      loki:
+        condition: service_started
+    command: ["--config", "/etc/otelcol/config.yaml"]
+    volumes:
+      - ./collector/config.yaml:/etc/otelcol/config.yaml:ro
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.5.0
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    depends_on:
+      loki:
+        condition: service_started
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      # No login and no data-source setup. A demo that opens on a sign-in form
+      # has already spent the two minutes it had.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_BASIC_ENABLED: "false"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/crier.json
+      GF_FEATURE_TOGGLES_ENABLE: ""
+    restart: unless-stopped
