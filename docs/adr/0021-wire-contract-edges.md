@@ -97,7 +97,12 @@ contractual under this ADR, so it now has a test that reads the JSON keys —
 verified by restoring the `omitempty` and watching it, and only it, go red.
 
 `core/v0.1.0` was already tagged when this was made; that tag does not gate
-these names. The trigger is `receivers/http/v*`, still unprinted.
+these names — the trigger is `receivers/http/v*`, and it was still unprinted.
+
+**It fired later the same day.** `receivers/http/v0.1.0` was published at
+commit `9c3f679`, so the field names above are frozen from now on: renaming,
+removing or retyping one requires `/v2/logs` served alongside v1 for a
+migration window. This paragraph is the last edit made while they were free.
 
 ## Consequences
 - The response schema needs the same review a request-schema change gets. In
