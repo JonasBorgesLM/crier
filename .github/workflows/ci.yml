@@ -51,6 +51,12 @@ jobs:
         run: |
           modules=$(find . -name go.mod -not -path './.git/*' \
             -exec dirname {} \; | sed 's|^\./||' | sort | jq -R . | jq -sc .)
+          if [ "$modules" = "[]" ] || [ -z "$modules" ]; then
+            # An empty matrix skips every job that fans out over it. ci-ok
+            # would catch the skips, but failing here says what is wrong
+            # instead of leaving someone to work it out from six skipped jobs.
+            echo "::error::no modules discovered; every downstream job would be skipped"; exit 1
+          fi
           echo "modules=$modules" >> "$GITHUB_OUTPUT"
           echo "Discovered: $modules"
 
@@ -107,7 +113,12 @@ jobs:
 
       - name: Verify formatting
         run: |
-          unformatted=$(gofmt -l .)
+          # `gofmt -l` exits 0 with no output both when everything is formatted
+          # and when it cannot read the tree, so its exit status is checked
+          # separately from its output.
+          if ! unformatted=$(gofmt -l .); then
+            echo "::error::gofmt failed to run; formatting was not checked"; exit 1
+          fi
           if [ -n "$unformatted" ]; then
             echo "::error::gofmt needed on:"; echo "$unformatted"; exit 1
           fi
@@ -146,8 +157,15 @@ jobs:
       - name: Assert empty require block
         working-directory: core
         run: |
-          deps=$(go list -deps -f '{{if not .Standard}}{{.ImportPath}}{{end}}' ./... \
-                 | grep -v '^github.com/JonasBorgesLM/crier/' || true)
+          # Resolved into a variable first so that `go list` failing aborts the
+          # step. Piped straight into grep, a broken module would produce an
+          # empty list and read as "no third-party dependencies" — a check that
+          # passes because it did not run.
+          all=$(go list -deps -f '{{if not .Standard}}{{.ImportPath}}{{end}}' ./...)
+          if [ -z "$all" ]; then
+            echo "::error::go list returned nothing; the check did not run"; exit 1
+          fi
+          deps=$(printf '%s\n' "$all" | grep -v '^github.com/JonasBorgesLM/crier/' || true)
           if [ -n "$deps" ]; then
             echo "::error::core gained third-party dependencies (NFR1):"
             echo "$deps"; exit 1
@@ -168,6 +186,12 @@ jobs:
           cache-dependency-path: exporters/otlp/integration/go.mod
       - name: go test -tags=integration
         working-directory: exporters/otlp/integration
+        # The suite skips itself when there is no container runtime, which is
+        # right for a developer without Docker and wrong here: a skipped suite
+        # exits 0, so the job would go green having tested nothing against a
+        # real collector. CI has Docker, so CI demands it.
+        env:
+          CRIER_REQUIRE_DOCKER: "1"
         run: go test -tags=integration -race -shuffle=on -timeout 20m ./...
 
   # ADR-0018: the OTLP exporter uses the slim proto module, because the

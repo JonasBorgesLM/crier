@@ -84,20 +84,27 @@ allowed; dressing it up is not, so:
 
 ### Requirement sweep
 
-All thirty-two requirements were read against the implementation. Thirty-one
-are met. The exception is **NFR5**, which is met for health endpoints and unmet
-for metrics exposure (A-6).
+All thirty-two requirements were read against the implementation. One was
+unmet and two asserted more than the code delivered; all three have since been
+reconciled rather than left to be discovered at the tag:
+
+- **NFR5** is met for health endpoints and unmet for metrics exposure (A-6).
+  The requirement now scopes that explicitly for v0.1.0 and links
+  [#50](https://github.com/JonasBorgesLM/crier/issues/50), rather than claiming
+  an exposure that does not exist.
+- **IR6** named `security-scanner` as the validation step. It now names what
+  actually exercises the threat model — the probe suite — and keeps the record
+  of why the tool was investigated and set aside.
 
 Two requirements are met in a way worth stating precisely rather than ticking:
 
-- **IR6** asks that using `security-scanner` against the receiver be
-  *documented*, not necessarily implemented. It was run down and the honest
+- **IR6** originally named `security-scanner`. It was run down and the honest
   result is that its confirmers are `xss-reflected` and `sqli-boolean` — classes
   that do not exist in a JSON ingestion endpoint with no HTML rendering and no
   SQL. Pointing it at `crierd` would produce a clean report proving nothing,
   which is the least useful kind of security artifact. The threat model is
   exercised instead by [`docs/security/probe-threats.sh`](security/probe-threats.sh),
-  twelve probes, all passing.
+  twelve probes, all passing — and the requirement was rewritten to say so.
 - **NFR9** asks for a changelog generated from the real API diff. The release
   workflow does that with `gorelease`. Note that `gorelease` cannot currently
   run for the dependent modules for the reason in A-9 — which is how A-9 was
@@ -131,6 +138,34 @@ behind, eight such findings appear and all are fixed in the next patch; CI
 scans on a supported toolchain, where none appear. No third-party module in any
 graph carries a known vulnerability, called or otherwise.
 
+### Follow-up sweep — verifications that pass without verifying
+
+Findings A-8 and the two broken probes shared a shape, and so did the gRPC
+guard fixed during M3: **a check whose own failure path is indistinguishable
+from success.** Three instances is a pattern rather than three accidents, so
+the class was swept for deliberately. Each case below was confirmed by making
+the tool fail, not by reading the code.
+
+| ID | Where | How it passed without checking | Status |
+| --- | --- | --- | --- |
+| V-1 | `docs/security/probe-threats.sh`, four probes | Run with no server up, the suite reported PASS for the oversized body, the wrong content type, the GET, and the "unknown source and wrong secret are identical" comparison. `curl` reports `000` when it never spoke HTTP; `000` is not `202`; and two empty bodies are equal. | Fixed |
+| V-2 | CI, `core has no third-party deps` | `go list` failing produced an empty dependency list, which reads as "none". | Fixed |
+| V-3 | CI, `Verify formatting` | `gofmt -l` prints nothing both when the tree is clean and when it cannot read the tree. | Fixed |
+| V-4 | CI, `integration (otlp)` | The suite skips itself without a container runtime — correct for a developer, wrong in CI, where a skipped suite exits 0 and nothing is tested against a real collector. | Fixed |
+| V-5 | `release.yml`, release notes | A missing API diff falls back to `(no API diff available)` and the release publishes, quietly unmeeting NFR9. Cannot be made fatal until A-9 is resolved, since `gorelease` legitimately cannot run today. | [#53](https://github.com/JonasBorgesLM/crier/issues/53) |
+| V-6 | `release.yml`, tag signature | A warning does not fail a job, and it merges "not signed" with "CI cannot check". Needs an allowed-signers file before it can gate. | [#54](https://github.com/JonasBorgesLM/crier/issues/54) |
+
+The common repair is the same in every case: resolve the tool's output into a
+variable so its exit status can be checked separately from its content, and
+assert the expected answer rather than the absence of the wrong one. A negative
+assertion — "not 202", "no output", "no match" — is satisfied by a tool that
+never ran.
+
+**What was checked and found sound:** the `go mod tidy` verification and the
+`govulncheck` step both abort on tool failure under `set -e`; the drop-reason
+exhaustiveness test fails when its source scan returns nothing; the demo's
+container healthcheck fails closed when its probe binary is missing.
+
 ### Cross-project precedent
 
 | ID | Origin | Applied here |
@@ -151,6 +186,10 @@ surprises during implementation.
   `ObservedTimestamp`, and `FanOut` documents retry as composed inside it.
 - **Metrics are not exposed** (A-6). Tracked in
   [#50](https://github.com/JonasBorgesLM/crier/issues/50).
+- **Two release-path checks still fail open** (V-5, V-6), tracked in
+  [#53](https://github.com/JonasBorgesLM/crier/issues/53) and
+  [#54](https://github.com/JonasBorgesLM/crier/issues/54). Neither can be
+  closed before A-9 and an allowed-signers file respectively.
 - **The release order is documented, not enforced** (A-9). Nothing stops
   someone tagging a dependent module before `core`; the result is a published
   module a consumer cannot resolve. See [`RELEASING.md`](../RELEASING.md).
