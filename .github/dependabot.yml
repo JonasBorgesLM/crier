@@ -20,6 +20,13 @@ updates:
   # If you add a module, add it here — the list is hand-kept and nothing
   # checks it.
   #
+  # A gomod bump here usually arrives incomplete. Dependabot updates one
+  # directory per pull request, but the modules are replace-linked, so raising
+  # a dependency in exporters/otlp changes what cmd/crierd resolves and its
+  # go.mod has to move too — CI then fails in the dependent module with
+  # "updates to go.mod needed". Finish the bump by hand across every module
+  # that pins the dependency; #58 is the worked example.
+  #
   # exporters/otlp/integration is deliberately absent. It is test-only and
   # never published, and its dependencies are pinned *below* their latest
   # releases on purpose: the newer ones declare go 1.25.0 and would lift that
