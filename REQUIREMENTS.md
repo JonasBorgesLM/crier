@@ -120,6 +120,19 @@ Threats explicitly considered (detailed in ADR-0008 and ADR-0010):
   liveness endpoints (standalone mode) and internal metrics (records
   ingested/dropped/exported/filtered, buffer depth, export latency, retry
   counts, per-source admission rejections).
+
+  > **Scope for v0.1.0.** The endpoints are implemented; the metrics are
+  > collected in full and are readable by an embedding host through the
+  > `Metrics` interface, but `crierd` exposes none of them over the network —
+  > the admin listener serves only `/healthz` and `/readyz`. External exposure
+  > is [#50](https://github.com/JonasBorgesLM/crier/issues/50) and lands after
+  > v0.1.0.
+  >
+  > Stated rather than left to be discovered, because the counters this
+  > requirement enumerates are the ones an operator needs to tell capacity
+  > pressure from a per-source quota from an unreachable backend, and today
+  > they cannot see any of them from outside the process. Found as A-6 in the
+  > implementation audit.
 - **NFR6** CI must run linting (`golangci-lint`), `go vet`, `govulncheck`,
   unit tests, and integration tests (OTLP exporter against a real collector
   via testcontainers).
@@ -148,9 +161,24 @@ Threats explicitly considered (detailed in ADR-0008 and ADR-0010):
 - **IR5** Provide an end-to-end `docker-compose.yml` demo: an example
   service -> `crierd` -> OTel Collector -> a viewable backend (e.g.
   Grafana or Jaeger), runnable with a single command.
-- **IR6** Document (not necessarily implement in MVP) using `security-
-  scanner` against `crierd`'s own HTTP receiver as a validation step,
-  specifically exercising the threat model above.
+- **IR6** The threat model above must be exercised against a running receiver,
+  by something re-runnable, with the result recorded.
+
+  This is met by [`docs/security/probe-threats.sh`](docs/security/probe-threats.sh):
+  twelve probes, one per threat plus the transport surface, runnable against
+  the demo stack in one command.
+
+  > **On `security-scanner`.** This requirement originally named it. It was
+  > investigated during the M6 audit and is not used, for a reason worth
+  > keeping rather than hiding: its confirmers are reflected XSS and boolean
+  > SQLi, classes that cannot exist in a JSON ingestion endpoint that renders
+  > no HTML and speaks to no database. It would produce a clean report proving
+  > nothing, which is the least useful kind of security artifact — a passing
+  > check that verifies nothing is worse than an absent one, because someone
+  > will cite it.
+  >
+  > `security-scanner` remains the right tool for the API surfaces it was built
+  > for. The mismatch is with this target, not with the tool.
 - **IR7** Support deployment behind `gateway-auth` as a reverse proxy, where
   `crier` derives source identity from the gateway-asserted identity
   instead of client-asserted fields. This mode is strictly opt-in and
