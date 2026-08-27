@@ -280,6 +280,8 @@ in each module.
 - [Benchmarks](docs/benchmarks.md) — hot-path measurements and what they found
 - [Ecosystem integrations](docs/integrations/README.md) — `task-api`, `gateway-auth`, `moat`
 - [Audit log](docs/audit-log.md) — review passes, findings, and who performed them
+- [Releasing](RELEASING.md) — the tag order, and why it is not optional
+- [Security probes](docs/security/probe-threats.sh) — the threat model, exercised against a running receiver
 - [Demo](demo/README.md) — the one-command end-to-end stack
 - [Contributing](CONTRIBUTING.md)
 

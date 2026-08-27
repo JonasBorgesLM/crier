@@ -61,6 +61,9 @@ supersedes the old, not an edit:
 - Branch from `develop`: `feature/<short-slug>`, `fix/<short-slug>`,
   `docs/<short-slug>`. Releases branch `release/vX.Y.Z` off `develop`;
   urgent fixes branch `hotfix/vX.Y.Z` off `main`.
+- Tagging a release has an order that is not optional — a dependent module
+  tagged before `core` publishes something no consumer can resolve. See
+  [`RELEASING.md`](RELEASING.md) before your first tag.
 - **[Conventional Commits](https://www.conventionalcommits.org)** (NFR9),
   scoped to the module or area:
 

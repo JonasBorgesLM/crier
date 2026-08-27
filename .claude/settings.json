@@ -12,5 +12,6 @@
         ]
       }
     ]
-  }
+  },
+  "_comment": "PreToolUse hook enforcing CLAUDE.md's 'one subject per commit, staged explicitly'. WARNING when editing permissionDecisionReason: this whole command string is interpolated into a shell, so backticks, $ and backslashes in the message are EVALUATED, not printed. The first draft used backticks around example commands and the shell ran them - a test invocation actually executed git commit. Keep the message free of shell metacharacters and re-run the check in docs/hook-check.md after any edit."
 }

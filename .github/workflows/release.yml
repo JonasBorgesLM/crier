@@ -8,7 +8,13 @@ on:
     tags:
       - "core/v*"
       - "exporters/*/v*"
+      - "receivers/*/v*"
       - "cmd/crierd/v*"
+      # A tag pattern is a list someone forgets to extend, and the module it
+      # forgets is one that cannot be released at all. receivers/http was
+      # missing until the M6 audit looked for it. `*` does not match `/`, so
+      # exporters/otlp/integration — test-only, never published — still cannot
+      # be tagged into a release by accident.
 
 permissions:
   contents: read
