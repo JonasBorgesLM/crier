@@ -116,7 +116,7 @@ jobs:
           gorelease > "$RUNNER_TEMP/apidiff.txt" 2>&1 || true
           cat "$RUNNER_TEMP/apidiff.txt"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: apidiff
           path: ${{ runner.temp }}/apidiff.txt
@@ -158,7 +158,7 @@ jobs:
             -o "$RUNNER_TEMP/$name" .
           (cd "$RUNNER_TEMP" && sha256sum "$name" > "$name.sha256")
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: binary-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
