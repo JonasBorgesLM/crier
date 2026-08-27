@@ -9,12 +9,18 @@ on:
       - "core/v*"
       - "exporters/*/v*"
       - "receivers/*/v*"
-      - "cmd/crierd/v*"
+      - "cmd/*/v*"
       # A tag pattern is a list someone forgets to extend, and the module it
-      # forgets is one that cannot be released at all. receivers/http was
-      # missing until the M6 audit looked for it. `*` does not match `/`, so
-      # exporters/otlp/integration — test-only, never published — still cannot
-      # be tagged into a release by accident.
+      # forgets is one that cannot be released at all — silently. receivers/*
+      # was missing until the M6 audit looked for it, and cmd/ named crierd
+      # specifically until the sweep after it.
+      #
+      # `on.push.tags` accepts no expressions, so this cannot be derived from
+      # the modules that exist. The ci.yml job `module-coverage` checks the
+      # correspondence instead, and fails when a module matches nothing here.
+      #
+      # `*` does not match `/`, so exporters/otlp/integration — test-only,
+      # never published — still cannot be tagged into a release by accident.
 
 permissions:
   contents: read
