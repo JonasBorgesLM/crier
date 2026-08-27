@@ -113,6 +113,11 @@ across milestones M0–M6, each citing the ADR that decided it. Prefer taking an
 existing issue over inventing work; the ordering across milestones is
 deliberate (the engine before the receiver, the receiver before the daemon).
 
+Work lands on `develop`; `main` is what has been released and is merged from
+`develop` at each release, never committed to directly. The rules, and why the
+merge back after a release is not optional, are in
+[`CONTRIBUTING.md`](CONTRIBUTING.md#develop-and-main).
+
 Milestone branches stack — an open milestone's PR is often based on the
 previous milestone's branch, not on `develop`. Merging them has an order:
 retarget the dependent PR to `develop` **before** deleting the base branch, or
