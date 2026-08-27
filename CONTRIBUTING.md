@@ -69,6 +69,9 @@ supersedes the old, not an edit:
 - At each release, `develop` merges into `main`, and the tags are cut there.
   `main` is therefore always a released state, and it is also what GitHub shows
   a visitor — those being the same thing is the point.
+- **Until the first tag exists**, `main` simply tracks `develop`: there is no
+  released state for it to hold yet, and a default branch showing an empty
+  project is worse than one showing unreleased work.
 - The release's own commits — the `go.mod` edits that swap a local `replace`
   for a published version, see [`RELEASING.md`](RELEASING.md) — are made on
   `main` during the release, and `main` is merged back into `develop` when it

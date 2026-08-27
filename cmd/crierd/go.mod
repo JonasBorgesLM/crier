@@ -16,7 +16,7 @@ require (
 
 require (
 	go.opentelemetry.io/proto/slim/otlp v1.10.0 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
+	google.golang.org/protobuf v1.36.12 // indirect
 )
 
 replace github.com/JonasBorgesLM/crier/receivers/http => ../../receivers/http

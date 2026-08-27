@@ -49,6 +49,13 @@ where its own floor is its own business.
   comment does not survive a refactor. The guard does, and it names this ADR in
   its failure message so the next person meets the reasoning at the moment they
   need it.
+- **The failure surfaces one module away from the change.** A bump lands in
+  `exporters/otlp`, but that module still builds — what breaks is every module
+  that inherits the requirement through a `replace`. Dependabot PR #59, raising
+  `slim/otlp` to 1.11.0, passed `test (exporters/otlp)` and failed
+  `test (cmd/crierd)` and the integration module with "updates to go.mod
+  needed". Someone reading only the module they edited concludes it is fine and
+  goes looking in the wrong place.
 - The guard is deliberately about the *module graph* rather than the import
   list. A `require` line is enough to constrain version selection and drag the
   floor up, whether or not any package is imported yet, so the graph is where

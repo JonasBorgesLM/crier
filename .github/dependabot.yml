@@ -1,16 +1,40 @@
 version: 2
+
 updates:
   - package-ecosystem: github-actions
     directory: "/"
+    # Work lands on develop; nothing targets main directly, releases included
+    # (CONTRIBUTING). Without this Dependabot opens against the default branch
+    # and every accepted bump becomes a commit main has and develop does not.
+    target-branch: develop
     schedule:
       interval: weekly
     commit-message:
       prefix: "ci"
 
   # One entry per module (ADR-0003): Dependabot does not discover nested
-  # go.mod files on its own, so a new exporter module needs a new entry here.
+  # go.mod files on its own, so a new module needs a new entry here.
+  #
+  # receivers/http went unwatched from M3 until the M6 release prep, because
+  # the comment above said "a new exporter module" and a receiver is not one.
+  # If you add a module, add it here — the list is hand-kept and nothing
+  # checks it.
+  #
+  # A gomod bump here usually arrives incomplete. Dependabot updates one
+  # directory per pull request, but the modules are replace-linked, so raising
+  # a dependency in exporters/otlp changes what cmd/crierd resolves and its
+  # go.mod has to move too — CI then fails in the dependent module with
+  # "updates to go.mod needed". Finish the bump by hand across every module
+  # that pins the dependency; #58 is the worked example.
+  #
+  # exporters/otlp/integration is deliberately absent. It is test-only and
+  # never published, and its dependencies are pinned *below* their latest
+  # releases on purpose: the newer ones declare go 1.25.0 and would lift that
+  # module above the floor NFR2 fixes. Dependabot would fight that pinning
+  # every week and lose every time.
   - package-ecosystem: gomod
     directory: "/core"
+    target-branch: develop
     schedule:
       interval: weekly
     commit-message:
@@ -18,6 +42,25 @@ updates:
 
   - package-ecosystem: gomod
     directory: "/exporters/otlp"
+    target-branch: develop
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "build"
+    ignore:
+      # ADR-0018. The slim proto module from 1.11.0 declares go 1.25.0, which
+      # lifts a library module above the Go 1.24 floor NFR2 has it promise to
+      # importers. CI already rejects the bump — see #59 — but rejecting it
+      # weekly is a standing cost paid to relearn a decision that is already
+      # written down.
+      #
+      # Remove this when the floor moves, not before.
+      - dependency-name: "go.opentelemetry.io/proto/slim/otlp"
+        versions: [">=1.11.0"]
+
+  - package-ecosystem: gomod
+    directory: "/receivers/http"
+    target-branch: develop
     schedule:
       interval: weekly
     commit-message:
@@ -25,6 +68,7 @@ updates:
 
   - package-ecosystem: gomod
     directory: "/cmd/crierd"
+    target-branch: develop
     schedule:
       interval: weekly
     commit-message:
