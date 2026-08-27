@@ -1,3 +1,9 @@
+github.com/JonasBorgesLM/crier/core v0.1.0 h1:PerFBum5Qanx+kHrEx8CWY92x90hv1PDz8fDmp0MF58=
+github.com/JonasBorgesLM/crier/core v0.1.0/go.mod h1:lQLrnt5MTokc7ryLVC6/czVGq4IrCFq14Yg/52Ms5Hk=
+github.com/JonasBorgesLM/crier/exporters/otlp v0.1.0 h1:+pksTr4SWEDPp1NNweaRY/U8CngXRJUh78X/d6QiZrU=
+github.com/JonasBorgesLM/crier/exporters/otlp v0.1.0/go.mod h1:nKY6UBrIUSBM6OQRzr2i4q6wOuFDum9smD9AOmYmboo=
+github.com/JonasBorgesLM/crier/receivers/http v0.1.0 h1:RQX/gUiOiv/8j2KJjrQMH5Z5NGXQLKNGx0dkQLqLPVI=
+github.com/JonasBorgesLM/crier/receivers/http v0.1.0/go.mod h1:V6QeWSohwcq+qWKcDZS9dgm4BLLMGIbesY1RyibJLFM=
 github.com/JonasBorgesLM/moat v0.2.0 h1:4GWDJInGeIgLmdeUxzK2ckUT1WBBhffWyoZP5hSW0v0=
 github.com/JonasBorgesLM/moat v0.2.0/go.mod h1:65xs3itYF+S7xsAZ32o0N7FvZj1564SDquOvmE2nD0o=
 github.com/google/go-cmp v0.7.0 h1:wk8382ETsv4JYUZwIsn6YpYiWiBsYLSJiTsyBybVuN8=
