@@ -223,9 +223,27 @@ reading .../exporters/otlp/go.mod at revision exporters/otlp/v0.1.0:
     unknown revision exporters/otlp/v0.1.0
 ```
 
-Two details that follow from it: the outside-consumer step below must run in
-the same shell so it inherits the cold cache, and `rm -rf "$SIM"` will not
-remove the cache afterwards, because module cache entries are read-only. Run
+**And it protects the machine from the rehearsal, which is the worse
+direction.** `insteadOf` makes Go record the *real* URL for what it fetched, and
+`GOPRIVATE` switches the checksum database off, so without `GOMODCACHE` the
+rehearsal writes simulation bits into the shared cache under the real module
+path and version — unverified. They sit there until a genuine `go mod tidy`
+finds them and dies:
+
+```
+github.com/JonasBorgesLM/crier/exporters/otlp@v0.1.0: verifying module:
+    checksum mismatch
+SECURITY ERROR
+```
+
+That happened during this release, from a rehearsal run before the isolation
+existed. The published bits were fine; the local cache was not. If it happens,
+the fix is to evict those entries — `chmod -R u+w` the module's directories
+under `$(go env GOMODCACHE)` and delete them — not to trust the message.
+
+Two more details: the outside-consumer step below must run in the same shell so
+it inherits the cold cache, and `rm -rf "$SIM"` will not remove the cache
+afterwards, because module cache entries are read-only. Run
 `GOMODCACHE="$SIM/gomodcache" go clean -modcache` first.
 
 **Finish with an outside consumer**, because that is the failure A-9 is about

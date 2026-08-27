@@ -18,7 +18,7 @@ replace (
 )
 
 require (
-	github.com/JonasBorgesLM/crier/core v0.0.0
+	github.com/JonasBorgesLM/crier/core v0.1.0
 	github.com/JonasBorgesLM/crier/exporters/otlp v0.0.0
 	github.com/docker/docker v28.2.2+incompatible
 	github.com/docker/go-connections v0.5.0
