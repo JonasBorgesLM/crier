@@ -4,11 +4,12 @@ A record of the review passes performed against `crier`'s design and, later,
 its implementation. Each pass lists what was found, what closed it, and — the
 part most often omitted — **who performed the review**.
 
-> **Provenance.** Both passes recorded below were performed by the design
-> author, not by an independent reviewer. That is a real limitation of this
-> record and is stated here rather than left for a reader to infer. An
-> independent pass is tracked as an open item under
-> [M6 — Audit & release](https://github.com/JonasBorgesLM/crier/milestones).
+> **Provenance.** Every pass recorded below — including the implementation
+> audit in Pass 3, which M6 asked to be performed in a clean session — was
+> performed by the same author who wrote the design and the code. **No pass has
+> been independent.** That is a real limitation of this record and is stated
+> here rather than left for a reader to infer. What an audit by its own author
+> can find, and what it structurally cannot, is discussed in Pass 3.
 
 ## Pass 1 — Design review (pre-implementation)
 
@@ -43,6 +44,93 @@ for failure modes left undescribed.
 | A-4 | **No defined end state under sustained export failure.** Circuit breaking only protects against short outages; with a bounded buffer and an hour-long backend outage the system had no described behavior for its most likely serious failure. | Medium | ADR-0015 |
 | A-5 | **Silent loss at shutdown.** Records still unexported when the drain timeout expires were discarded with no accounting — the undocumented data loss ADR-0002 forbids on the ingestion path, reappearing at shutdown. | Medium | ADR-0015 |
 
+## Pass 3 — Implementation audit (post-M5, pre-release)
+
+**Scope.** The implemented system read against every accepted ADR and every
+requirement in `REQUIREMENTS.md`; the dependency graph of all five modules; and
+the declared threat model exercised against a running receiver.
+**Reviewer.** The implementation author. **Independence: not satisfied.**
+**Outcome.** Four findings, one fixed here, three tracked.
+
+### On the independence this pass does not have
+
+M6 asked for an audit "in a clean session". This was performed in the same
+session that wrote the code, by the same author. Restating the outcome is
+allowed; dressing it up is not, so:
+
+- **What this pass could still find.** Mechanical checks do not care who runs
+  them — the dependency graph, the vulnerability scan, the tag triggers, the
+  requirement-by-requirement sweep, and the probes against a running receiver
+  all produce evidence independent of the reviewer's beliefs. A-6 through A-9
+  came from that half.
+- **What it structurally cannot.** An author cannot audit their own model of
+  the problem. Every threat in the model is one this author thought of; a
+  threat nobody here considered is invisible to a review by the same person, no
+  matter how carefully it is conducted. The redaction pattern set is the
+  sharpest example: it catches the shapes its author knew to look for, and
+  `TestBodyRedactionIsBestEffort` documents that rather than resolving it.
+- **What would close it.** A reviewer who did not write this reading
+  `REQUIREMENTS.md` and the ADR index cold, and a second pair of eyes on the
+  threat model in particular. Neither has happened.
+
+### Findings
+
+| ID | Finding | Severity | Status |
+| --- | --- | --- | --- |
+| A-6 | **Metrics are collected and never exposed.** NFR5 requires the service to expose internal metrics. `crierd` builds a `CountingMetrics` and wires it through every stage, but the admin listener serves only `/healthz` and `/readyz`. Every counter the pipeline maintains is unreadable from outside the process, which makes the whole self-observability requirement decorative in the standalone binary. | High | Open — [#50](https://github.com/JonasBorgesLM/crier/issues/50) |
+| A-7 | **NFR3's text predates ADR-0020.** It lists `core`, `exporters/<name>` and `cmd/crierd` as the module kinds. There are four; `receivers/<name>` was added by ADR-0020 and the requirement was never updated. The ADR is authoritative and the requirement contradicts it. | Low | Open — [#51](https://github.com/JonasBorgesLM/crier/issues/51) |
+| A-8 | **`receivers/http` could not be released.** The release workflow's tag trigger listed `core`, `exporters/*` and `cmd/crierd`. Pushing `receivers/http/v0.1.0` would have done nothing, silently. | Medium | Fixed in this pass |
+| A-9 | **Every dependent module is unpublishable as it stands.** `exporters/otlp`, `receivers/http` and `cmd/crierd` require `crier/core` at a version that does not exist, masked by a local `replace`. A consumer ignores a dependency's `replace` directives, so `go get` on any of them fails to resolve. This is not a bug in any module; it is a release *order* nobody had written down. | High | Documented — [`RELEASING.md`](../RELEASING.md) |
+
+### Requirement sweep
+
+All thirty-two requirements were read against the implementation. Thirty-one
+are met. The exception is **NFR5**, which is met for health endpoints and unmet
+for metrics exposure (A-6).
+
+Two requirements are met in a way worth stating precisely rather than ticking:
+
+- **IR6** asks that using `security-scanner` against the receiver be
+  *documented*, not necessarily implemented. It was run down and the honest
+  result is that its confirmers are `xss-reflected` and `sqli-boolean` — classes
+  that do not exist in a JSON ingestion endpoint with no HTML rendering and no
+  SQL. Pointing it at `crierd` would produce a clean report proving nothing,
+  which is the least useful kind of security artifact. The threat model is
+  exercised instead by [`docs/security/probe-threats.sh`](security/probe-threats.sh),
+  twelve probes, all passing.
+- **NFR9** asks for a changelog generated from the real API diff. The release
+  workflow does that with `gorelease`. Note that `gorelease` cannot currently
+  run for the dependent modules for the reason in A-9 — which is how A-9 was
+  found.
+
+### Dependency graph
+
+Scanned per module, because a clean `core` says nothing about the others:
+
+| Module | Modules in graph | Third-party vulnerabilities |
+| --- | --- | --- |
+| `core` | 1 | 0 |
+| `receivers/http` | 3 | 0 |
+| `exporters/otlp` | 7 | 0 |
+| `cmd/crierd` | 9 | 0 |
+| `exporters/otlp/integration` | 99 | 0 |
+
+`core`'s graph contains only itself: NFR1 holds, and CI enforces it rather than
+trusting review.
+
+The 99-module graph belongs to the test-only integration module, which is never
+published and which no consumer can import. That quarantine is deliberate and
+is why testcontainers does not appear in anyone's `go.sum` — but it is worth
+naming, because a reader who greps the repository for its dependency count will
+find that number and it is not the shipped one.
+
+**In the graph but off the build path.** Every finding reported by
+`govulncheck` at module scope in every module was in the Go standard library of
+the scanning toolchain, not in a required module. On a toolchain one patch
+behind, eight such findings appear and all are fixed in the next patch; CI
+scans on a supported toolchain, where none appear. No third-party module in any
+graph carries a known vulnerability, called or otherwise.
+
 ### Cross-project precedent
 
 | ID | Origin | Applied here |
@@ -54,13 +142,15 @@ for failure modes left undescribed.
 Items known to be unresolved. Kept here so they are not rediscovered as
 surprises during implementation.
 
-- **Independent audit pass.** Neither pass above was independent. Tracked in
-  M6. Repeating that outcome is acceptable; misrepresenting it is not.
-- **Export worker topology undecided.** ADR-0013 states the requirement (a slow
-  exporter must not serialize its siblings) but not the mechanism. Must be
-  recorded as an ADR before the export layer is built. Tracked in M2.
-- **Draft interfaces predate ADR-0009 and ADR-0013.** The drafted `core/record.go`
-  and `core/exporter.go` referenced by ADR-0004's amendment are not yet in this
-  repository. When they land they must already carry `ObservedTimestamp`
-  (ADR-0009), and `FanOut` must not document retry as wrapping it (ADR-0013,
-  finding A-1). Tracked in M0.
+- **Independent audit pass.** No pass has been independent, Pass 3 included.
+  Repeating that outcome is acceptable; misrepresenting it is not, so it is
+  repeated. See Pass 3 for what that costs specifically.
+- ~~**Export worker topology undecided.**~~ Decided in ADR-0016 before the
+  export layer was built.
+- ~~**Draft interfaces predate ADR-0009 and ADR-0013.**~~ Both landed carrying
+  `ObservedTimestamp`, and `FanOut` documents retry as composed inside it.
+- **Metrics are not exposed** (A-6). Tracked in
+  [#50](https://github.com/JonasBorgesLM/crier/issues/50).
+- **The release order is documented, not enforced** (A-9). Nothing stops
+  someone tagging a dependent module before `core`; the result is a published
+  module a consumer cannot resolve. See [`RELEASING.md`](../RELEASING.md).
