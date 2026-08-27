@@ -226,6 +226,23 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 		cfg.Buffer.UnlistedPool = n
 	}
 
+	// CRIER_SOURCES declares which source identifiers exist, so a credential
+	// can live only in the environment and the file can hold none at all.
+	//
+	// It is a separate variable because envKey is lossy: "checkout-service"
+	// and "checkout.service" both become CHECKOUT_SERVICE, so the environment
+	// variable's name cannot be turned back into an identifier. The source
+	// list carries the exact names; the per-source variables carry the
+	// secrets, one each.
+	for _, source := range splitList(getenv("CRIER_SOURCES")) {
+		if cfg.Auth.Credentials == nil {
+			cfg.Auth.Credentials = map[string]string{}
+		}
+		if _, declared := cfg.Auth.Credentials[source]; !declared {
+			cfg.Auth.Credentials[source] = ""
+		}
+	}
+
 	// CRIER_CREDENTIAL_<SOURCE> and CRIER_EXPORTER_CREDENTIAL_<NAME>, so a
 	// secret never has to be written into the file at all.
 	for source := range cfg.Auth.Credentials {
@@ -239,6 +256,21 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 		}
 	}
 	return nil
+}
+
+// splitList parses a comma-separated list, ignoring blanks.
+func splitList(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 // envKey renders a source or exporter name as an environment-variable suffix.

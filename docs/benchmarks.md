@@ -52,6 +52,34 @@ body scanning is neither.
 **The cardinality guard and fair-share admission are effectively free** at
 0.7 µs and 0.1 µs. Neither is a reason to disable a protection.
 
+### The cost attributable to body redaction
+
+Isolated by difference, since that is the only way to attribute it honestly —
+each row below is a benchmark of the same pipeline with one stage removed:
+
+| Path | ns/op | Body redaction's share |
+| --- | --- | --- |
+| Everything except redaction | 966 | — |
+| Plus attribute redaction | 1,914 | +948 ns for attributes |
+| Plus body scan, message with no credential | 2,086 | **+172 ns** |
+| Plus body scan, message containing a credential | 12,128 | **+10,214 ns** |
+
+So body redaction is **8% of the common-case path and 84% of the worst case**.
+The asymmetry is the whole argument for structured attributes: masking by key
+costs 948 ns and is reliable, masking by shape costs up to 10 µs and is
+best-effort (ADR-0014).
+
+The 172 ns figure is what the prefilter buys. Without it, every message paid
+the full scan.
+
+### Re-measured after M4
+
+The numbers above were first taken in M1 and re-measured on the same hardware
+after the export layer, the receiver and the runtime landed: 12,128 / 2,086 /
+38 / 705 / 106 ns against the published 12,180 / 2,095 / 37.5 / 698 / 104.
+Nothing added since M1 sits on this path, and the measurements say so rather
+than the claim resting on nobody having noticed.
+
 ## What was fixed, and what it cost before
 
 The first run of this benchmark measured **32.7 µs/op**, and two thirds of that
