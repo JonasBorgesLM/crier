@@ -8,7 +8,7 @@ replace (
 )
 
 require (
-	github.com/JonasBorgesLM/crier/core v0.0.0
+	github.com/JonasBorgesLM/crier/core v0.1.0
 	github.com/JonasBorgesLM/crier/exporters/otlp v0.0.0-00010101000000-000000000000
 	github.com/JonasBorgesLM/crier/receivers/http v0.0.0
 	github.com/JonasBorgesLM/moat v0.2.0
