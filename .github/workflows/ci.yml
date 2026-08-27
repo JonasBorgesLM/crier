@@ -96,7 +96,7 @@ jobs:
       # build on the supported toolchain because that toolchain is the standard
       # library shipped inside the binary; everything else builds at the floor
       # it promises importers, which is what proves the promise still holds.
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ startsWith(matrix.module, 'cmd/') && env.GO_SUPPORTED_VERSION || env.GO_VERSION }}
           cache-dependency-path: ${{ matrix.module }}/go.mod
@@ -150,7 +150,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: core/go.mod
@@ -180,7 +180,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: exporters/otlp/integration/go.mod
@@ -213,7 +213,7 @@ jobs:
         module: ${{ fromJSON(needs.discover.outputs.libraries) }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: ${{ matrix.module }}/go.mod
@@ -250,7 +250,7 @@ jobs:
         module: ${{ fromJSON(needs.discover.outputs.modules) }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: ${{ matrix.module }}/go.mod
@@ -271,7 +271,7 @@ jobs:
         module: ${{ fromJSON(needs.discover.outputs.modules) }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           # Deliberately not GO_VERSION — see GO_SUPPORTED_VERSION above.
           go-version: ${{ env.GO_SUPPORTED_VERSION }}
