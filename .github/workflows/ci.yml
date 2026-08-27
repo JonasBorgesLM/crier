@@ -256,7 +256,7 @@ jobs:
           cache-dependency-path: ${{ matrix.module }}/go.mod
       # v8 is the line that runs golangci-lint v2 — v6 installs v1, which
       # rejects .golangci.yml's `version: "2"` schema outright.
-      - uses: golangci/golangci-lint-action@v8
+      - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
           working-directory: ${{ matrix.module }}
