@@ -92,6 +92,17 @@ the expensive way — see [`docs/audit-log.md`](docs/audit-log.md).
 - **Tests are table-driven**, use `t.Run` subtests, and assert the specific
   behaviour and counter — not just "no error".
 - **Public packages carry testable examples** (`ExampleXxx`), matching `moat`.
+- **A check must fail when it cannot run.** Six checks here have passed without
+  verifying anything, so this is a rule rather than an aspiration:
+  - A negative assertion — `!= 202`, "no output", "no match" — is satisfied by
+    a tool that never ran. Assert the expected answer instead.
+  - Resolve a tool's output into a variable first, so its exit status is
+    checked separately from its content. Piped straight into `grep`, a crashed
+    command and a clean result are the same thing.
+  - A suite that skips itself exits 0. Where the dependency is guaranteed — CI
+    — its absence must fail, not skip.
+  - Verify a new guard by breaking what it guards. If you have not seen it go
+    red, you do not know it is a check.
 - Secrets and credentials are held as masked values, never plain strings
   (NFR4, IR2).
 
