@@ -77,6 +77,28 @@ the response to what it covers.
 Adding a field is not on this list: it is backwards-compatible and needs no
 check.
 
+### Run on 2026-08-27, before the first `receivers/http` tag
+
+The trigger printed nothing, so the names were still free, and one was changed
+under that freedom: **`rejected` lost its `omitempty` and is now always
+present, zero included.**
+
+Omitting a count on a fully accepted batch saves a handful of bytes and leaves
+every client to decide what an absent field means. The safe reading is zero and
+the natural one is "unknown", so the format was inviting a bug on the consuming
+side to save nothing on the producing side. `reason` keeps its `omitempty`
+deliberately: it is prose explaining rejected records, and there are none.
+
+Worth recording about *how* that was caught, because the ADR's own machinery
+did not catch it: every test asserting the response decoded it into the
+response struct, where an absent field and a zero field are both zero. The
+whole suite would have passed with both counts gone from the wire. Presence is
+contractual under this ADR, so it now has a test that reads the JSON keys —
+verified by restoring the `omitempty` and watching it, and only it, go red.
+
+`core/v0.1.0` was already tagged when this was made; that tag does not gate
+these names. The trigger is `receivers/http/v*`, still unprinted.
+
 ## Consequences
 - The response schema needs the same review a request-schema change gets. In
   practice this makes the counts and their meanings hard to change casually,
