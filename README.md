@@ -235,9 +235,27 @@ curl -i localhost:4318/v1/logs \
   -d '{"records":[{"severityNumber":9,"body":"hello"}]}'
 ```
 
+A `202` answers with both counts, and **both are always present, zero
+included** — a batch nothing was rejected from still says so:
+
+```json
+{"accepted": 3, "rejected": 0}
+```
+
+`reason` joins them only when there is something to explain, and its wording is
+the one part of the body no version promises:
+
+```json
+{"accepted": 4, "rejected": 2, "reason": "buffer full"}
+```
+
+A `202` with a non-zero `rejected` is not a failure to re-send wholesale: the
+accepted records were taken, and re-sending the batch duplicates them.
+
 Adding optional fields is backwards-compatible; renaming, removing, or
 retyping one — in the request *or* the response — requires a new path version
-(ADR-0021).
+(ADR-0021). Which keys are present is part of that, which is why `rejected`
+does not disappear when it is zero.
 
 ## Benchmarks
 

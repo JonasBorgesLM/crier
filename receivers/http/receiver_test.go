@@ -322,6 +322,72 @@ func TestFilteredRecordsAreStillA202(t *testing.T) {
 	}
 }
 
+// Which keys the response carries is part of the contract (ADR-0021), and
+// decoding into ingestResponse cannot see it: an absent field and a zero one
+// both arrive as zero, so every other test here would pass unchanged if the
+// counts vanished from the wire. This one reads the keys.
+func TestResponseAlwaysCarriesBothCounts(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   harnessConfig
+		records  int
+		accepted float64
+		rejected float64
+		reason   bool
+	}{
+		{
+			name:     "fully accepted",
+			records:  3,
+			accepted: 3,
+			rejected: 0,
+		},
+		{
+			name:     "partially rejected",
+			config:   harnessConfig{capacity: 4},
+			records:  6,
+			accepted: 4,
+			rejected: 2,
+			reason:   true,
+		},
+		{
+			name:     "everything filtered",
+			config:   harnessConfig{filter: &core.Filter{MinSeverity: core.SeverityError}},
+			records:  3,
+			accepted: 3,
+			rejected: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t, tt.config)
+
+			w := h.post(recordsBody(tt.records))
+
+			var body map[string]any
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+				t.Fatalf("decoding %q: %v", w.Body.String(), err)
+			}
+			for _, key := range []string{"accepted", "rejected"} {
+				if _, ok := body[key]; !ok {
+					t.Errorf("%q missing from %s — both counts are always present, zero included", key, w.Body)
+				}
+			}
+			if got := body["accepted"]; got != tt.accepted {
+				t.Errorf("accepted = %v, want %v", got, tt.accepted)
+			}
+			if got := body["rejected"]; got != tt.rejected {
+				t.Errorf("rejected = %v, want %v", got, tt.rejected)
+			}
+			// reason is the one field that stays conditional: it is prose
+			// about the rejected records, and there are none to explain.
+			if _, ok := body["reason"]; ok != tt.reason {
+				t.Errorf("reason present = %v, want %v, in %s", ok, tt.reason, w.Body)
+			}
+		})
+	}
+}
+
 // The mechanism ADR-0012 reserves for a migration window, exercised rather
 // than asserted: a removal decision should rest on a counter, not a guess.
 func TestDeprecatedVersionAdvertisesItselfAndIsCounted(t *testing.T) {
