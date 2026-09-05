@@ -62,7 +62,9 @@ Threats explicitly considered (detailed in ADR-0008 and ADR-0010):
   applied before buffering, following the masking approach already
   established in `moat`'s `secret` package.
 - **FR8** Support severity-based filtering/sampling, applied before buffering
-  (global/per-source), with optional additional filtering per exporter.
+  (global/per-source/per-attribute — ADR-0022, narrowing only, never
+  widening what a source's own identity already allows), with optional
+  additional filtering per exporter.
 - **FR9** Expose the same core engine as both an embeddable Go library
   (`crier.New(...).Handler()`) and a standalone binary (`crierd`).
 - **FR10** Perform a graceful shutdown on SIGTERM/SIGINT: stop accepting new
