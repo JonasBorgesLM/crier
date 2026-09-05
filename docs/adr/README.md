@@ -49,9 +49,19 @@ Decisions deferred deliberately, each owned by an issue on the board. They are
 listed here rather than left implicit, because an undecided question that looks
 decided is the one that gets implemented by accident.
 
-None outstanding. The one that stood here — export worker topology, left open
-by ADR-0013 — was decided in
-[ADR-0016](0016-export-worker-topology.md) before the export layer was written.
+- **Record-level filter/sample criteria.** ADR-0010 scopes the filter/sample
+  stage to severity threshold and sampling; it does not say whether the stage
+  may also match on `LogRecord` attributes (as opposed to source identity
+  only). Owned by [issue #71](https://github.com/JonasBorgesLM/crier/issues/71).
+- **Dashboard provisioning as a crier-owned module.** Whether crier ships an
+  opt-in package/subcommand that provisions backend-specific dashboards (e.g.
+  SigNoz) on a consumer's behalf, and if so where it lives under the
+  multi-module layout (ADR-0003) and how it holds the backend credential
+  (NFR4). Owned by [issue #72](https://github.com/JonasBorgesLM/crier/issues/72).
+
+The one open question that used to stand here — export worker topology, left
+open by ADR-0013 — was decided in [ADR-0016](0016-export-worker-topology.md)
+before the export layer was written.
 
 ## Conventions
 
