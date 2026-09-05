@@ -33,8 +33,13 @@ services:
   # crier itself.
   crierd:
     build:
-      # The repository root: crierd is a module with replace directives onto
-      # its siblings, so the build needs all of them.
+      # The repository root. cmd/crierd resolves core, exporters/otlp, and
+      # receivers/http from the real module proxy now (no replace directives
+      # since the v0.1.0 release; RELEASING.md), so the build only needs
+      # network access to it, not the sibling sources on disk — but see
+      # .dockerignore for a real defect this same COPY once produced: it is
+      # not scoped by .gitignore, so a developer's own local go.work leaked
+      # in and set a Go version floor the build image did not satisfy.
       context: ..
       dockerfile: demo/Dockerfile
     depends_on:

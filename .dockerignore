@@ -1,0 +1,23 @@
+# The demo build (demo/Dockerfile, context: repo root) does `COPY . .`,
+# which is not governed by .gitignore — Docker copies whatever is on disk
+# regardless of what git tracks. Found the expensive way: a local go.work
+# (untracked, per .gitignore, and recommended by RELEASING.md for normal
+# development) leaked into the build image and set a Go version floor the
+# pinned build image did not satisfy, failing a build that has nothing to
+# do with go.work at all — cmd/crierd's own go.mod is what actually governs
+# it. Anything here is a real go.work someone made pinned to whatever they
+# were working on when they built the demo.
+go.work
+go.work.sum
+
+# Never useful inside a build, and a full repo clone's worth of git history
+# is a poor trade for however many megabytes it happens to be.
+.git/
+
+# Same reasoning as .gitignore: never build inputs.
+.DS_Store
+.env
+*.out
+coverage.*
+*.coverprofile
+profile.cov
