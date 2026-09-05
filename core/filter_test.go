@@ -139,6 +139,198 @@ func TestPerSourceOverrides(t *testing.T) {
 	}
 }
 
+// ADR-0022: an attribute rule may only narrow what a source's own settings
+// already keep. These tests are the "never widen" property, checked from
+// every direction it could fail.
+func TestAttributeRuleNarrowsSeverity(t *testing.T) {
+	f := &Filter{
+		MinSeverity: SeverityInfo,
+		Rules: []AttributeRule{
+			{Key: "path", Value: "/health", MinSeverity: ptr(SeverityError)},
+		},
+	}
+
+	probe := LogRecord{Severity: SeverityWarn, Attributes: map[string]any{"path": "/health"}}
+	if f.Keep(&probe, "task-api") {
+		t.Error("a health-check WARN survived a rule raising the threshold to ERROR")
+	}
+
+	business := LogRecord{Severity: SeverityWarn, Attributes: map[string]any{"path": "/v1/tasks"}}
+	if !f.Keep(&business, "task-api") {
+		t.Error("a non-matching WARN was filtered; the rule must not apply beyond its match")
+	}
+}
+
+func TestAttributeRuleCannotWidenSeverity(t *testing.T) {
+	f := &Filter{
+		MinSeverity: SeverityError,
+		Rules: []AttributeRule{
+			// A rule trying to lower the bar below what identity requires.
+			{Key: "path", Value: "/health", MinSeverity: ptr(SeverityDebug)},
+		},
+	}
+	rec := LogRecord{Severity: SeverityWarn, Attributes: map[string]any{"path": "/health"}}
+	if f.Keep(&rec, "task-api") {
+		t.Error("a rule widened MinSeverity below the source's own ERROR floor")
+	}
+}
+
+func TestAttributeRuleNarrowsSampleRate(t *testing.T) {
+	f := &Filter{
+		Rules: []AttributeRule{
+			{Key: "path", Value: "/health", SampleRate: ptr(SampleNothing)},
+		},
+	}
+	rec := LogRecord{Severity: SeverityInfo, Attributes: map[string]any{"path": "/health"}}
+	for range 50 {
+		if f.Keep(&rec, "task-api") {
+			t.Fatal("a record matching a SampleNothing rule was kept")
+		}
+	}
+}
+
+func TestAttributeRuleCannotWidenSampleRate(t *testing.T) {
+	f := &Filter{
+		SampleRate: SampleNothing, // source keeps nothing eligible for sampling
+		Rules: []AttributeRule{
+			// A rule trying to keep everything for this attribute.
+			{Key: "path", Value: "/health", SampleRate: ptr(1.0)},
+		},
+	}
+	rec := LogRecord{Severity: SeverityInfo, Attributes: map[string]any{"path": "/health"}}
+	for range 50 {
+		if f.Keep(&rec, "task-api") {
+			t.Fatal("a rule widened SampleRate above the source's own SampleNothing")
+		}
+	}
+}
+
+func TestAttributeRuleSampleFloorStillApplies(t *testing.T) {
+	f := &Filter{
+		Rules: []AttributeRule{
+			{Key: "path", Value: "/health", SampleRate: ptr(SampleNothing)},
+		},
+	}
+	// A health endpoint that has started failing: exactly the record its own
+	// rule must not be able to suppress.
+	rec := LogRecord{Severity: SeverityError, Attributes: map[string]any{"path": "/health"}}
+	if !f.Keep(&rec, "task-api") {
+		t.Error("an ERROR record was discarded by a matching rule; the sample floor must exempt it")
+	}
+}
+
+func TestAttributeRuleMatchesValuePrefix(t *testing.T) {
+	f := &Filter{Rules: []AttributeRule{
+		{Key: "path", ValuePrefix: "/health", MinSeverity: ptr(SeverityError)},
+	}}
+	for _, path := range []string{"/health", "/health/ready", "/healthcheck"} {
+		rec := LogRecord{Severity: SeverityWarn, Attributes: map[string]any{"path": path}}
+		if f.Keep(&rec, "task-api") {
+			t.Errorf("path %q matching the prefix survived the rule", path)
+		}
+	}
+	rec := LogRecord{Severity: SeverityWarn, Attributes: map[string]any{"path": "/v1/tasks"}}
+	if !f.Keep(&rec, "task-api") {
+		t.Error("a path not matching the prefix was filtered")
+	}
+}
+
+func TestAttributeRuleOnlyMatchesStringAttributes(t *testing.T) {
+	f := &Filter{Rules: []AttributeRule{
+		{Key: "status", Value: "200", MinSeverity: ptr(SeverityError)},
+	}}
+	// The value is the number 200, not the string "200" — a rule keyed on
+	// string equality must not match by comparing a stringified rendering.
+	rec := LogRecord{Severity: SeverityWarn, Attributes: map[string]any{"status": 200}}
+	if !f.Keep(&rec, "task-api") {
+		t.Error("a non-string attribute value matched a Value rule")
+	}
+}
+
+func TestAttributeRuleNeverConsultsBody(t *testing.T) {
+	f := &Filter{Rules: []AttributeRule{
+		{Key: "path", Value: "/health", MinSeverity: ptr(SeverityError)},
+	}}
+	// The text "/health" appears in Body, not in an attribute. A rule that
+	// somehow consulted Body would filter this; one that only reads
+	// Attributes, as designed, must not.
+	rec := LogRecord{Severity: SeverityWarn, Body: "GET /health 200 in 1ms"}
+	if !f.Keep(&rec, "task-api") {
+		t.Error("a rule matched against Body text; rules must only ever consult Attributes")
+	}
+}
+
+func TestAttributeRuleFirstMatchWins(t *testing.T) {
+	f := &Filter{Rules: []AttributeRule{
+		{Key: "path", Value: "/health", MinSeverity: ptr(SeverityDebug)}, // would keep everything
+		{Key: "path", Value: "/health", MinSeverity: ptr(SeverityError)}, // would filter this WARN
+	}}
+	rec := LogRecord{Severity: SeverityWarn, Attributes: map[string]any{"path": "/health"}}
+	if !f.Keep(&rec, "task-api") {
+		t.Error("the second rule applied; the first matching rule must win")
+	}
+}
+
+func TestAttributeRuleWithNoMatchLeavesSourceSettingsInForce(t *testing.T) {
+	f := &Filter{
+		MinSeverity: SeverityInfo,
+		PerSource:   map[string]SourceFilter{"noisy": {MinSeverity: ptr(SeverityError)}},
+		Rules:       []AttributeRule{{Key: "path", Value: "/health", MinSeverity: ptr(SeverityFatal)}},
+	}
+	// No "path" attribute at all: the rule cannot match, so PerSource's own
+	// ERROR threshold for "noisy" must be exactly what applies.
+	rec := LogRecord{Severity: SeverityWarn}
+	if f.Keep(&rec, "noisy") {
+		t.Error("noisy: WARN survived despite the per-source ERROR threshold and no rule match")
+	}
+}
+
+func TestAttributeRuleValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		rule AttributeRule
+		want string
+	}{
+		{"no key", AttributeRule{Value: "x", MinSeverity: ptr(SeverityError)}, "no Key"},
+		{
+			"neither selector",
+			AttributeRule{Key: "path", MinSeverity: ptr(SeverityError)},
+			"neither Value nor ValuePrefix",
+		},
+		{
+			"both selectors",
+			AttributeRule{Key: "path", Value: "/health", ValuePrefix: "/health", MinSeverity: ptr(SeverityError)},
+			"both Value and ValuePrefix",
+		},
+		{
+			"neither narrowing field",
+			AttributeRule{Key: "path", Value: "/health"},
+			"a rule that changes nothing",
+		},
+		{
+			"severity out of range",
+			AttributeRule{Key: "path", Value: "/health", MinSeverity: ptr(Severity(99))},
+			"MinSeverity",
+		},
+		{
+			"rate out of range",
+			AttributeRule{Key: "path", Value: "/health", SampleRate: ptr(2.0)},
+			"SampleRate",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := Filter{Rules: []AttributeRule{tc.rule}}
+			err := f.Validate()
+			if err == nil {
+				t.Fatal("Validate accepted an impossible rule")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %q does not name %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestKeepBatchCompactsInPlace(t *testing.T) {
 	f := &Filter{MinSeverity: SeverityWarn}
 
