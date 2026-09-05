@@ -36,3 +36,6 @@ go.work.sum
 
 # Compiled daemon: `go build ./...` inside cmd/crierd writes it there
 /cmd/crierd/crierd
+
+# Graphify knowledge graph — generated per machine, rebuilt with `graphify update .`
+graphify-out/
