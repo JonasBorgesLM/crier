@@ -8,8 +8,11 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/JonasBorgesLM/crier/core"
 )
 
 func discardLogger() *slog.Logger {
@@ -153,6 +156,14 @@ func TestBuildRefusesConfigurationThatCannotBeRight(t *testing.T) {
 			mutate: func(c *Config) { c.Buffer.Policy = "discard-everything" },
 			want:   "drop policy",
 		},
+		{
+			// A destination's own Filter is validated the same as every other
+			// per-destination setting: at startup, not on the first batch
+			// that would have hit it (issue #45).
+			name:   "invalid destination filter",
+			mutate: func(c *Config) { c.Exporters[0].Filter = FilterConfig{SampleRate: 2} },
+			want:   "filter",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := workingConfig()
@@ -166,6 +177,64 @@ func TestBuildRefusesConfigurationThatCannotBeRight(t *testing.T) {
 				t.Errorf("error = %q, want it to mention %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// recordingExporter is a minimal core.Exporter double: buildFanOut's own
+// logic (composing Retry/CircuitBreaker, attaching a Filter) is what these
+// tests exercise, not an exporter's delivery behaviour, which core.FanOut's
+// own tests already cover.
+type recordingExporter struct {
+	mu      sync.Mutex
+	batches [][]core.LogRecord
+}
+
+func (r *recordingExporter) Export(_ context.Context, batch []core.LogRecord) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.batches = append(r.batches, batch)
+	return nil
+}
+
+func (r *recordingExporter) Shutdown(context.Context) error { return nil }
+
+func (r *recordingExporter) lastBatch() []core.LogRecord {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.batches) == 0 {
+		return nil
+	}
+	return r.batches[len(r.batches)-1]
+}
+
+// Issue #45: an exporter's own FilterConfig must reach core.Destination.Filter,
+// so that destination alone narrows what it receives.
+func TestBuildFanOutAttachesPerDestinationFilter(t *testing.T) {
+	picky := &recordingExporter{}
+	open := &recordingExporter{}
+	configs := []ExporterConfig{
+		{Name: "picky", Filter: FilterConfig{MinSeverity: int(core.SeverityWarn)}},
+		{Name: "open"},
+	}
+
+	fanOut, err := buildFanOut(configs, map[string]core.Exporter{"picky": picky, "open": open}, nil)
+	if err != nil {
+		t.Fatalf("buildFanOut: %v", err)
+	}
+
+	batch := []core.LogRecord{
+		{Body: "info", Severity: core.SeverityInfo},
+		{Body: "warn", Severity: core.SeverityWarn},
+	}
+	if err := fanOut.Export(context.Background(), batch); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+
+	if got := len(picky.lastBatch()); got != 1 {
+		t.Errorf("picky destination received %d records, want 1 (its FilterConfig.MinSeverity narrows to Warn and above)", got)
+	}
+	if got := len(open.lastBatch()); got != 2 {
+		t.Errorf("open destination (no Filter configured) received %d records, want 2 (unnarrowed)", got)
 	}
 }
 

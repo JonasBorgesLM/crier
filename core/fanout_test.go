@@ -121,6 +121,16 @@ func TestNewFanOutRejectsConfigurationThatCannotBeRight(t *testing.T) {
 			},
 			want: "want a positive duration",
 		},
+		{
+			// A destination filter is validated at construction, same as the
+			// pre-buffer Filter is by NewPipeline (NFR4) — it fails at
+			// startup, not silently on the first batch that would have hit it.
+			name: "invalid destination filter",
+			cfg: FanOutConfig{Destinations: []Destination{
+				{Name: "primary", Exporter: ok, Filter: &Filter{SampleRate: 2}},
+			}},
+			want: `destination "primary": filter:`,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := NewFanOut(tc.cfg)
@@ -402,5 +412,104 @@ func TestFanOutNamesAreReportedInOrder(t *testing.T) {
 	}
 	if got := f.Names(); got[0] != "primary" || got[1] != "archive" {
 		t.Errorf("Names() = %v, want [primary archive]", got)
+	}
+}
+
+// mixedSeverityBatch is two SeverityInfo records followed by one
+// SeverityWarn record, so a MinSeverity: SeverityWarn destination filter
+// keeps exactly the last one.
+func mixedSeverityBatch() []LogRecord {
+	batch := testBatch(3)
+	batch[2].Severity = SeverityWarn
+	return batch
+}
+
+// Issue #45: ADR-0010 describes per-destination filtering as available on
+// top of the pre-buffer Filter; core.Filter.KeepBatch existed but nothing
+// wired it into the export layer, so the narrowing it describes was
+// unreachable. These tests are that wiring's behavioural contract.
+func TestFanOutDestinationFilterNarrowsOnlyThatDestination(t *testing.T) {
+	filtered := &fakeExporter{}
+	unfiltered := &fakeExporter{}
+	f := mustFanOut(t, FanOutConfig{Destinations: []Destination{
+		{Name: "filtered", Exporter: filtered, Filter: &Filter{MinSeverity: SeverityWarn}},
+		{Name: "unfiltered", Exporter: unfiltered},
+	}})
+
+	batch := mixedSeverityBatch()
+	if err := f.Export(context.Background(), batch); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+
+	if got := len(filtered.lastBatch()); got != 1 {
+		t.Errorf("filtered destination received %d records, want 1 (only the Warn one)", got)
+	}
+	if got := len(unfiltered.lastBatch()); got != 3 {
+		t.Errorf("unfiltered destination received %d records, want all 3", got)
+	}
+
+	// The narrowing must not have touched the batch the caller (and the
+	// unfiltered destination) still holds — KeepBatch would have compacted
+	// it in place and corrupted this.
+	if len(batch) != 3 {
+		t.Errorf("caller's batch has %d records after Export, want 3 (unmutated)", len(batch))
+	}
+}
+
+func TestFanOutDestinationFilterCountsFilteredNotDropped(t *testing.T) {
+	var m CountingMetrics
+	exporter := &fakeExporter{}
+	f := mustFanOut(t, FanOutConfig{
+		Destinations: []Destination{
+			{Name: "picky", Exporter: exporter, Filter: &Filter{SampleRate: SampleNothing}},
+		},
+		Metrics: &m,
+	})
+
+	if err := f.Export(context.Background(), testBatch(2)); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+
+	snap := m.Snapshot()
+	if got := snap.Filtered[""]; got != 2 {
+		t.Errorf("Filtered[\"\"] = %d, want 2", got)
+	}
+	if got := snap.TotalDropped(); got != 0 {
+		t.Errorf("TotalDropped() = %d, want 0 — a destination filter narrows, it does not drop", got)
+	}
+}
+
+func TestFanOutDestinationFilterNarrowedToEmptyIsNotAFailure(t *testing.T) {
+	exporter := &fakeExporter{}
+	f := mustFanOut(t, FanOutConfig{Destinations: []Destination{
+		{Name: "picky", Exporter: exporter, Filter: &Filter{SampleRate: SampleNothing}},
+	}})
+
+	if err := f.Export(context.Background(), testBatch(2)); err != nil {
+		t.Fatalf("Export returned %v, want nil — narrowed to nothing is success, not a failure", err)
+	}
+	if got := exporter.calls.Load(); got != 0 {
+		t.Errorf("underlying exporter was called %d times, want 0 for an empty narrowed batch", got)
+	}
+}
+
+// The scenario the issue names explicitly: every destination narrows the same
+// batch to nothing. That must read as every destination succeeding at
+// receiving what it asked for, not as the batch failing to reach anywhere —
+// the latter is DropBackendUnavailable, which would misreport data loss that
+// did not happen.
+func TestFanOutAllDestinationsNarrowedToEmptyIsNotAFanOutError(t *testing.T) {
+	f := mustFanOut(t, FanOutConfig{Destinations: []Destination{
+		{Name: "a", Exporter: &fakeExporter{}, Filter: &Filter{SampleRate: SampleNothing}},
+		{Name: "b", Exporter: &fakeExporter{}, Filter: &Filter{SampleRate: SampleNothing}},
+	}})
+
+	err := f.Export(context.Background(), testBatch(2))
+	var fanOutErr *FanOutError
+	if errors.As(err, &fanOutErr) {
+		t.Fatalf("Export returned a FanOutError (%v), want nil", fanOutErr)
+	}
+	if err != nil {
+		t.Fatalf("Export: %v", err)
 	}
 }

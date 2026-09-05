@@ -133,6 +133,12 @@ type ExporterConfig struct {
 	Headers                 map[string]string `json:"headers"`
 	Compression             string            `json:"compression"`
 	AllowInsecureCredential bool              `json:"allowInsecureCredential"`
+
+	// Filter additionally narrows what this destination receives, after
+	// dequeue — on top of the top-level Filter, never instead of it
+	// (ADR-0010, FR8, issue #45). The zero value keeps everything this
+	// destination would otherwise get.
+	Filter FilterConfig `json:"filter"`
 }
 
 // Duration is a time.Duration that unmarshals from a Go duration string, so a

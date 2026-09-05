@@ -169,7 +169,7 @@ func build(cfg Config, logger *slog.Logger) (*daemon, error) {
 	if err != nil {
 		return nil, err
 	}
-	fanOut, err := buildFanOut(destinations, metrics)
+	fanOut, err := buildFanOut(cfg.Exporters, destinations, metrics)
 	if err != nil {
 		return nil, err
 	}
@@ -226,12 +226,19 @@ func build(cfg Config, logger *slog.Logger) (*daemon, error) {
 }
 
 // buildFanOut composes each destination as FanOut(Retry(CircuitBreaker(e))),
-// which is the only correct order (ADR-0013).
-func buildFanOut(destinations map[string]core.Exporter, metrics core.Metrics) (*core.FanOut, error) {
-	built := make([]core.Destination, 0, len(destinations))
-	for name, exporter := range destinations {
+// which is the only correct order (ADR-0013), and attaches its optional
+// per-destination Filter (issue #45) — the narrowing ADR-0010 describes as
+// available on top of the pipeline's own Filter, never instead of it.
+//
+// Iterates configs rather than the destinations map so a destination's own
+// FilterConfig travels with its exporter; destinations is already keyed by
+// the same names configs declares; exporters built it from the same slice.
+func buildFanOut(configs []ExporterConfig, destinations map[string]core.Exporter, metrics core.Metrics) (*core.FanOut, error) {
+	built := make([]core.Destination, 0, len(configs))
+	for _, cfg := range configs {
+		name := cfg.Name
 		breaker, err := core.NewCircuitBreaker(core.CircuitBreakerConfig{
-			Name: name, Exporter: exporter, Metrics: metrics,
+			Name: name, Exporter: destinations[name], Metrics: metrics,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("destination %q: %w", name, err)
@@ -240,7 +247,7 @@ func buildFanOut(destinations map[string]core.Exporter, metrics core.Metrics) (*
 		if err != nil {
 			return nil, fmt.Errorf("destination %q: %w", name, err)
 		}
-		built = append(built, core.Destination{Name: name, Exporter: retry})
+		built = append(built, core.Destination{Name: name, Exporter: retry, Filter: buildFilter(cfg.Filter)})
 	}
 	return core.NewFanOut(core.FanOutConfig{Destinations: built, Metrics: metrics})
 }
