@@ -170,8 +170,22 @@ jobs:
           set -e
           cat "$RUNNER_TEMP/apidiff.txt"
           if [ "$status" -ne 0 ]; then
-            echo "::error::gorelease exited $status comparing against $base — see the output above" >&2
-            exit "$status"
+            # gorelease's own existing-versions sanity check queries the
+            # live module proxy for this exact module, and by the time this
+            # runs it can already see the very tag that triggered this
+            # workflow — a proxy-indexing race, not a defect (found
+            # releasing cmd/crierd/v0.1.1-test, #67's rehearsal). That
+            # refusal has one specific, matched reason, and it only ever
+            # follows a real API diff already printed above — the diff the
+            # release notes need is unaffected by this check failing.
+            # Anything else (module resolution failure, a genuine
+            # incompatible change) still fails the release.
+            if grep -q "^Can only suggest a release version when compared against the most recent version of this major:" "$RUNNER_TEMP/apidiff.txt"; then
+              echo "::warning::gorelease could not suggest a version, per the reason printed above — proceeding with the diff it already produced"
+            else
+              echo "::error::gorelease exited $status comparing against $base — see the output above" >&2
+              exit "$status"
+            fi
           fi
 
       - uses: actions/upload-artifact@v7
@@ -241,7 +255,15 @@ jobs:
 
       - name: Assemble release notes
         run: |
-          diff_file="$RUNNER_TEMP/artifacts/apidiff/apidiff.txt"
+          # download-artifact@v8's own log claims "an extra directory with
+          # the artifact name will be created for each download", but
+          # empirically (releasing core/v0.2.0, #67's rehearsal) that did not
+          # happen for a single matched artifact: apidiff.txt landed flat
+          # under $RUNNER_TEMP/artifacts, not nested under an apidiff/
+          # subdirectory. find matches either layout, the same way the
+          # binaries step below already searches recursively for crierd_*
+          # rather than assuming a fixed path.
+          diff_file=$(find "$RUNNER_TEMP/artifacts" -type f -name apidiff.txt -print -quit)
 
           # A missing or empty artifact is a broken release, not a release
           # with no diff to report (#53): verify already failed a non-zero
@@ -249,9 +271,10 @@ jobs:
           # failing, and substituting "(no API diff available)" let that pass
           # as a normal release with nobody the wiser. [ -s ] is true only
           # when the file exists and is non-empty, covering both "missing"
-          # and "empty" in one check.
+          # and "empty" in one check — and an empty $diff_file (find found
+          # nothing) safely fails the same [ -s "" ] test.
           if [ ! -s "$diff_file" ]; then
-            echo "::error::$diff_file is missing or empty — the apidiff artifact upload must have failed" >&2
+            echo "::error::apidiff.txt not found (or empty) under $RUNNER_TEMP/artifacts — the apidiff artifact upload must have failed" >&2
             exit 1
           fi
 
