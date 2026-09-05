@@ -121,18 +121,16 @@ Threats explicitly considered (detailed in ADR-0008 and ADR-0010):
   ingested/dropped/exported/filtered, buffer depth, export latency, retry
   counts, per-source admission rejections).
 
-  > **Scope for v0.1.0.** The endpoints are implemented; the metrics are
-  > collected in full and are readable by an embedding host through the
-  > `Metrics` interface, but `crierd` exposes none of them over the network —
-  > the admin listener serves only `/healthz` and `/readyz`. External exposure
-  > is [#50](https://github.com/JonasBorgesLM/crier/issues/50) and lands after
-  > v0.1.0.
-  >
-  > Stated rather than left to be discovered, because the counters this
-  > requirement enumerates are the ones an operator needs to tell capacity
-  > pressure from a per-source quota from an unreachable backend, and today
-  > they cannot see any of them from outside the process. Found as A-6 in the
-  > implementation audit.
+  > **Closed post-v0.1.0.** The admin listener now also serves `GET /metrics`
+  > in the Prometheus text exposition format, alongside `/healthz` and
+  > `/readyz`, rendering `core.CountingMetrics.Snapshot()` — every counter
+  > this requirement enumerates, readable from outside the process rather
+  > than only through the embeddable `Metrics` interface. Found unmet as A-6
+  > in the implementation audit, tracked as
+  > [#50](https://github.com/JonasBorgesLM/crier/issues/50), closed by adding
+  > `cmd/crierd/metrics_prometheus.go` — hand-rolled rather than a client
+  > library, since `core` stays dependency-free (NFR1) and the format itself
+  > needs nothing a library would meaningfully save.
 - **NFR6** CI must run linting (`golangci-lint`), `go vet`, `govulncheck`,
   unit tests, and integration tests (OTLP exporter against a real collector
   via testcontainers).

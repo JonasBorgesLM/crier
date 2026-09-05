@@ -88,6 +88,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 type daemon struct {
 	dispatcher *core.Dispatcher
 	health     *core.Health
+	metrics    *core.CountingMetrics
 	ingest     *http.Server
 	admin      *http.Server
 	drain      time.Duration
@@ -207,6 +208,7 @@ func build(cfg Config, logger *slog.Logger) (*daemon, error) {
 	d := &daemon{
 		dispatcher: dispatcher,
 		health:     health,
+		metrics:    metrics,
 		drain:      time.Duration(cfg.DrainTimeout),
 		logger:     logger,
 	}
@@ -296,7 +298,7 @@ func buildFilter(cfg FilterConfig) *core.Filter {
 	}
 }
 
-// adminMux serves liveness and readiness (NFR5, ADR-0015).
+// adminMux serves liveness, readiness, and metrics (NFR5, ADR-0015).
 func (d *daemon) adminMux() *http.ServeMux {
 	mux := http.NewServeMux()
 
@@ -322,6 +324,16 @@ func (d *daemon) adminMux() *http.ServeMux {
 			return
 		}
 		fmt.Fprintln(w, reason) //nolint:errcheck // the probe hung up; the status is already sent
+	})
+
+	// The counters every stage already maintains, finally readable from
+	// outside the process (audit finding A-6). Same admin listener as the
+	// probes above, behind the same loopback-by-default posture: which
+	// sources are being throttled is operational detail for whoever runs
+	// crier, same argument ADR-0005 already makes for the probes.
+	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		writePrometheusMetrics(w, d.metrics.Snapshot())
 	})
 
 	return mux

@@ -244,6 +244,25 @@ func TestDaemonServesAndDrains(t *testing.T) {
 		t.Errorf("ingest = %d (%s), want 202", resp.StatusCode, payload)
 	}
 
+	// The counters the pipeline already maintains, readable from the admin
+	// listener (audit finding A-6). Asserting the specific source and count,
+	// not just that the endpoint answers.
+	metricsResp, err := http.Get(adminURL + "/metrics") //nolint:noctx // a probe in a test
+	if err != nil {
+		t.Fatalf("GET /metrics: %v", err)
+	}
+	metricsBody, err := io.ReadAll(metricsResp.Body)
+	_ = metricsResp.Body.Close()
+	if err != nil {
+		t.Fatalf("reading /metrics body: %v", err)
+	}
+	if ct := metricsResp.Header.Get("Content-Type"); !strings.Contains(ct, "text/plain") {
+		t.Errorf("/metrics Content-Type = %q, want text/plain", ct)
+	}
+	if want := `crier_records_ingested_total{source="task-api"} 1`; !strings.Contains(string(metricsBody), want) {
+		t.Errorf("/metrics missing %q\nfull body:\n%s", want, metricsBody)
+	}
+
 	cancel()
 	select {
 	case err := <-served:
