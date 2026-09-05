@@ -258,9 +258,15 @@ jobs:
       - name: Verify the tag is signed
         run: |
           # NFR9. A release nobody can attribute is worth less than no release.
-          if ! git verify-tag '${{ github.ref_name }}' 2>/dev/null; then
-            echo "::warning::tag ${{ github.ref_name }} is not signed or its key is unknown to CI"
-          fi
+          #
+          # #54: this used to warn and continue either way, which merged "not
+          # signed" with "CI has no way to check" into one message that gated
+          # nothing — every release published regardless. .github/allowed_signers
+          # publishes the release key CI checks against, so a failure now means
+          # something specific, and git verify-tag's own stderr (no longer
+          # discarded) says which of the two it is.
+          git config gpg.ssh.allowedSignersFile "$GITHUB_WORKSPACE/.github/allowed_signers"
+          git verify-tag '${{ github.ref_name }}'
 
       - name: Create GitHub Release
         env:

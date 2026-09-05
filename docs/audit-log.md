@@ -153,7 +153,7 @@ the tool fail, not by reading the code.
 | V-3 | CI, `Verify formatting` | `gofmt -l` prints nothing both when the tree is clean and when it cannot read the tree. | Fixed |
 | V-4 | CI, `integration (otlp)` | The suite skips itself without a container runtime — correct for a developer, wrong in CI, where a skipped suite exits 0 and nothing is tested against a real collector. | Fixed |
 | V-5 | `release.yml`, release notes | A missing API diff falls back to `(no API diff available)` and the release publishes, quietly unmeeting NFR9. Cannot be made fatal until A-9 is resolved, since `gorelease` legitimately cannot run today. | Fixed — [#53](https://github.com/JonasBorgesLM/crier/issues/53) |
-| V-6 | `release.yml`, tag signature | A warning does not fail a job, and it merges "not signed" with "CI cannot check". Needs an allowed-signers file before it can gate. | [#54](https://github.com/JonasBorgesLM/crier/issues/54) |
+| V-6 | `release.yml`, tag signature | A warning does not fail a job, and it merges "not signed" with "CI cannot check". Needs an allowed-signers file before it can gate. | Fixed — [#54](https://github.com/JonasBorgesLM/crier/issues/54) |
 
 The common repair is the same in every case: resolve the tool's output into a
 variable so its exit status can be checked separately from its content, and
@@ -195,9 +195,11 @@ surprises during implementation.
   to) and a non-zero exit — or a missing/empty artifact downstream — fails
   the release instead of publishing a placeholder. Closed by
   [#53](https://github.com/JonasBorgesLM/crier/issues/53).
-- **A second release-path check still fails open** (V-6, tag signature),
-  tracked in [#54](https://github.com/JonasBorgesLM/crier/issues/54). Blocked
-  on publishing an allowed-signers file.
+- ~~**A second release-path check failed open on tag signature verification**
+  (V-6).~~ `.github/allowed_signers` now publishes the release SSH key, and
+  `release.yml` points `gpg.ssh.allowedSignersFile` at it and gates on
+  `git verify-tag` instead of only warning. Closed by
+  [#54](https://github.com/JonasBorgesLM/crier/issues/54).
 - **The release order is documented, not enforced** (A-9). Nothing stops
   someone tagging a dependent module before `core`; the result is a published
   module a consumer cannot resolve. See [`RELEASING.md`](../RELEASING.md).

@@ -298,7 +298,8 @@ Pushing a matching tag runs `.github/workflows/release.yml`, which:
   tag, or `none` for a first release), and fails the release rather than
   publishing if `gorelease` cannot produce one (#53);
 - cross-compiles binaries for `cmd/` modules only;
-- checks the tag signature.
+- checks the tag signature against `.github/allowed_signers`, gating the
+  release on it (#54).
 
 ## On signed tags
 
@@ -308,13 +309,13 @@ Tags are signed. Verify locally before pushing:
 git verify-tag core/v0.1.0
 ```
 
-**CI's check is a warning, not a gate, and that is deliberate.** The signing key
-here is an SSH key, and `git verify-tag` in CI has no allowed-signers file to
-check it against — a hard failure would block every release on a key CI cannot
-see. Enforcing it properly means publishing an allowed-signers file and
-configuring `gpg.ssh.allowedSignersFile` in the workflow. Until that exists, the
-signature is enforced by the person tagging and merely reported by CI, which is
-worth knowing rather than assuming.
+**CI enforces this, not just reports it (#54).** `.github/allowed_signers`
+publishes the release SSH public key, and `release.yml` points
+`gpg.ssh.allowedSignersFile` at it before calling `git verify-tag` — an
+unsigned tag, or one signed by a key not in that file, fails the release
+before it publishes. A key rotation or a second person tagging releases means
+adding a line to `.github/allowed_signers` first, in its own commit, before
+the first tag signed with the new key.
 
 ## After the release
 
