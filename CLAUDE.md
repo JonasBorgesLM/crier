@@ -2,6 +2,13 @@
 
 Guidance for Claude Code when working in this repository.
 
+The general engineering rules — effort proportional to the task, architecture
+discipline, clean code, testing, review, security, git hygiene, verification —
+are in `~/.claude/CLAUDE.md` and are already loaded. **This file carries only
+what is true of crier.** Where it repeats a global rule, it is because this
+repository made it stricter or paid for it specifically, and the incident is
+part of the rule.
+
 ## What crier is
 
 A Go log-control service and library: it ingests application logs, normalizes
@@ -90,9 +97,9 @@ the expensive way — see [`docs/audit-log.md`](docs/audit-log.md).
 
 - **English** for all code, comments, and documentation (NFR8) — regardless of
   the language the request was written in.
-- **Conventional Commits** (NFR9). Scope is the module or area:
-  `feat(core): add per-source admission`, `fix(receiver): …`, `docs(adr): …`,
-  `ci: …`, `build(deps): …`.
+- **Conventional Commits** (NFR9). Scope is the module or area, and the module
+  list is the constraint: `feat(core): add per-source admission`,
+  `fix(receiver): …`, `docs(adr): …`, `ci: …`, `build(deps): …`.
 - **One subject per commit, staged explicitly.** Do not use `git add -A` when
   the working tree holds work on more than one subject — stage the files for
   each subject and commit them separately.
@@ -161,6 +168,59 @@ The board was populated once from a throwaway bootstrap script that is not
 kept in the repository. Create further issues by hand, matching the existing
 convention: a milestone, a `track:` label, whatever `kind:` labels apply, and a
 body that cites the ADR the work comes from.
+
+## Graphify in this repository
+
+A real code graph here, not a document map: 1213 nodes, 2846 edges, **8%
+`INFERRED`**. Rebuild with `graphify update .` before trusting it in a session
+that has changed code.
+
+**What it is unusually good for here.** crier's most important invariants are
+*shapes*, and a shape is what a graph is:
+
+```bash
+# The pipeline stage order is a contract (ADR-0010). This one query returns
+# Pipeline, .Redact(), .Admit(), .Buffer() AND the ADR that governs them --
+# code and decision in the same answer.
+graphify query "pipeline stage order redact filter admit buffer"
+
+# Invariant 1: retry goes INSIDE fan-out, never outside. The nesting is the
+# whole rule, and the four types it constrains are one query apart.
+graphify query "FanOut Retry CircuitBreaker exporter" --context call
+
+# LogRecord is the god node at 68 edges -- everything in the pipeline touches
+# it, so this is the blast radius of any change to the record.
+graphify affected "LogRecord"
+```
+
+That first one is the pattern worth reusing: because ADRs live in the tree,
+the graph connects a symbol to the decision that constrains it. Reviewing a
+change to `Pipeline.Admit` and being handed ADR-0010 alongside it is the
+review this repository's audit log says was missing twice.
+
+**It does not know the invariants, only the shapes.** It will show you that
+`Retry` and `FanOut` are both reachable from the dispatcher. Whether the
+nesting is `FanOut(Retry(...))` or the inverted, defective order is a question
+only the source answers — and inverting it was audit finding A-1. Use the graph
+to find the file; use the file to decide.
+
+## Tooling, and where it helps here
+
+- **`/security-review`, and `claude-security` for a deeper pass.** The
+  ingestion endpoint is an attack surface (ADR-0008), and redaction is
+  fail-closed by design (ADR-0014). A finding here should name the NFR or ADR
+  it breaks, or it is a worry rather than a finding.
+- **Superpowers' `systematic-debugging`** for the failure modes this project
+  actually has — a record that vanished without a counter, a batch that
+  re-sent to a healthy exporter. Both are ordering problems, and guessing at
+  those is how A-1 survived a review.
+- **`/impeccable` and the animation skills do not apply.** crier has no
+  frontend. The SigNoz dashboard is a JSON template shipped for someone else's
+  UI to render (ADR-0023), not an interface this repository designs.
+- **Playwright does not apply either.** There is no web application. The
+  equivalent is `docs/security/probe-threats.sh` (crier/IR6) — thirteen probes
+  against the running demo stack, which is the check that a threat model has
+  actually been attacked rather than merely written.
 
 ## Ecosystem
 
