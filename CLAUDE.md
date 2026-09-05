@@ -20,13 +20,14 @@ This is a **multi-module** repository (ADR-0003). There is no root `go.mod`.
 | --- | --- | --- |
 | `core/` | engine | **Zero third-party runtime deps (NFR1)** — CI enforces this |
 | `exporters/otlp/` | OTLP exporter | one module per exporter |
+| `receivers/http/` | async HTTP receiver | its own module (ADR-0020, amends ADR-0003) |
 | `cmd/crierd/` | standalone daemon | thin shell over `core` |
 
 A green build at one module says nothing about the others. Always run commands
 per module:
 
 ```bash
-for m in core exporters/otlp cmd/crierd; do (cd "$m" && go build ./... && go vet ./... && go test -race ./...); done
+for m in core exporters/otlp receivers/http cmd/crierd; do (cd "$m" && go build ./... && go vet ./... && go test -race ./...); done
 ```
 
 Lint (config in `.golangci.yml`, golangci-lint v2):
