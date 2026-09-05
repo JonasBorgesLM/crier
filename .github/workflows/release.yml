@@ -31,6 +31,17 @@ permissions:
 env:
   GO_VERSION: "1.24"
   GO_SUPPORTED_VERSION: "stable"
+  # Pinned like every other tool here, rather than @latest (#75). Same value
+  # as ci.yml; change them together.
+  GOVULNCHECK_VERSION: "v1.7.0"
+  # golang.org/x/exp carries no tagged releases — this is the exact
+  # pseudo-version, not a placeholder. gorelease's own package doc calls it
+  # experimental with no compatibility promise, which is precisely why a
+  # silent bump here is worth pinning against, not a reason to leave it
+  # unpinned. Bump on a stated trigger (an output-format change that breaks
+  # the API-diff parsing in the "Generate API diff" step, a bug fix this
+  # repository actually hits) — never on a schedule.
+  GORELEASE_VERSION: "v0.0.0-20260824195058-e88cd73687aa"
 
 jobs:
   resolve:
@@ -108,7 +119,7 @@ jobs:
         working-directory: ${{ needs.resolve.outputs.module }}
         run: |
           go version
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }}
           govulncheck ./...
 
       # NFR9: the changelog is generated from the real API diff, not written
@@ -152,7 +163,7 @@ jobs:
             base="none"
           fi
 
-          go install golang.org/x/exp/cmd/gorelease@latest
+          go install golang.org/x/exp/cmd/gorelease@${{ env.GORELEASE_VERSION }}
           set +e
           gorelease -base="$base" > "$RUNNER_TEMP/apidiff.txt" 2>&1
           status=$?
