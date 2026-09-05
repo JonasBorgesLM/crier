@@ -42,6 +42,13 @@ env:
   # change, a govulncheck behavior change breaking something downstream) —
   # never on a schedule, and never because this scan happened to go red.
   GOVULNCHECK_VERSION: "v1.7.0"
+  # The Go language version golangci-lint v2.12.2 (pinned in the lint job
+  # below) was itself built with. Neither GO_VERSION nor GO_SUPPORTED_VERSION
+  # is the right value here — this isn't a compatibility promise or a
+  # security posture, it's what the lint tool's own typechecker can parse,
+  # independent of any module's own `go` directive. Bump only alongside a
+  # golangci-lint version bump that was verified to raise it.
+  LINT_GO_VERSION: "1.26"
 
 jobs:
   # The repository is multi-module (ADR-0003), so a green root build does not
@@ -291,24 +298,27 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          # Per-module floor, same as the test job (#44): cmd/crierd's own
-          # go directive tracks the supported toolchain, not GO_VERSION, so
-          # linting it at the fixed library floor fails to load the module
-          # at all once the two diverge — not a lint finding, a toolchain
-          # too old to parse the stdlib the code already requires.
-          go-version: ${{ startsWith(matrix.module, 'cmd/') && env.GO_SUPPORTED_VERSION || env.GO_VERSION }}
+          # Neither GO_VERSION nor GO_SUPPORTED_VERSION: this installed
+          # toolchain's stdlib is what golangci-lint itself typechecks
+          # against, for every module, regardless of that module's own `go`
+          # directive — a different constraint from what builds or tests
+          # need (#44). GO_SUPPORTED_VERSION: stable outpaces the pinned
+          # lint tool below and breaks it on every module, cmd/crierd
+          # included, not just ones whose directive says so; see that pin's
+          # comment for why LINT_GO_VERSION is what it is.
+          go-version: ${{ env.LINT_GO_VERSION }}
           cache-dependency-path: ${{ matrix.module }}/go.mod
       # v8 is the line that runs golangci-lint v2 — v6 installs v1, which
       # rejects .golangci.yml's `version: "2"` schema outright.
       #
-      # This pin is also a ceiling on cmd/crierd's own `go` directive (#44):
-      # golangci-lint refuses to load a module whose go directive names a
-      # newer language version than the one it was itself built with
-      # ("can't load config: the Go language version ... is lower than the
-      # targeted Go version"). v2.12.2 was built with go1.26, which is why
-      # cmd/crierd's go.mod says `go 1.26`, not the literal current value of
-      # GO_SUPPORTED_VERSION: stable — bumping this pin is what raises that
-      # ceiling.
+      # LINT_GO_VERSION above has to match what this pinned release was
+      # itself built with: golangci-lint refuses to typecheck against a
+      # newer stdlib than its own build toolchain ("can't load config: the
+      # Go language version ... is lower than the targeted Go version"),
+      # regardless of any module's own `go` directive. v2.12.2 was built
+      # with go1.26 — which is also why cmd/crierd's go.mod says `go 1.26`
+      # rather than the literal current value of GO_SUPPORTED_VERSION:
+      # stable. Bumping this pin is what raises both ceilings.
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
