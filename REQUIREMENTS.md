@@ -165,8 +165,10 @@ Threats explicitly considered (detailed in ADR-0008 and ADR-0010):
   by something re-runnable, with the result recorded.
 
   This is met by [`docs/security/probe-threats.sh`](docs/security/probe-threats.sh):
-  twelve probes, one per threat plus the transport surface, runnable against
-  the demo stack in one command.
+  thirteen probes, covering every threat named above — including sensitive
+  data leakage, absent until this was found during a later audit pass — plus
+  wire format strictness and the transport surface, runnable against the demo
+  stack in one command.
 
   > **On `security-scanner`.** This requirement originally named it. It was
   > investigated during the M6 audit and is not used, for a reason worth

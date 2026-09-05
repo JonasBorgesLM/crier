@@ -96,7 +96,44 @@ else
   fi
 fi
 
-# 4. Resource exhaustion: oversized body (ADR-0010, step 1).
+# 4. Sensitive data leakage (ADR-0006, ADR-0014, the fifth threat named in
+#    REQUIREMENTS.md). Verified at the backend, not from the response — a 202
+#    only proves the record was accepted, not what left the process. The
+#    payload is the same shape the demo generator sends on purpose: an AWS
+#    access key in free text and a credential under a key that reads as
+#    sensitive, so a real regression here would already be visible in the demo
+#    even if this probe did not exist.
+#
+#    The raw-secret check below scans the whole query window, not just this
+#    probe's own record: a prior unredacted leak still inside Loki's default
+#    lookback (someone testing with redaction disabled, or a real regression
+#    before it was fixed) fails this probe until that data rotates out or the
+#    stack is recreated with `down -v`. Verified directly: this is exactly
+#    what happened while confirming this probe actually detects a break.
+marker3="probe-leak-$(date +%s)"
+probe "logged secrets are masked before export"
+code=$(status -X POST "$INGEST/v1/logs" -H "$JSON" -H "$AUTH" \
+  -d "{\"records\":[{\"body\":\"$marker3 failed to upload receipt: AWS key AKIAIOSFODNN7EXAMPLE rejected by S3\",\"attributes\":{\"api_key\":\"sk-live-51H8xQ2eZvKYlo2C\"}}]}")
+if [ "$code" != "202" ]; then
+  fail "ingest got $code, want 202"
+else
+  sleep 6
+  backend=$(body -G "$LOKI/loki/api/v1/query_range" \
+    --data-urlencode "query={service_name=~\".+\"}" --data-urlencode 'limit=500')
+  if ! echo "$backend" | grep -q "$marker3"; then
+    # Same reasoning as the spoofing probe above: an empty result proves the
+    # probe cannot see the backend, not that redaction ran.
+    fail "the record never reached the backend, so nothing was verified"
+  elif echo "$backend" | grep -qE 'AKIAIOSFODNN7EXAMPLE|sk-live-51H8xQ2eZvKYlo2C'; then
+    fail "a raw secret reached the backend unmasked"
+  elif ! echo "$backend" | grep -qF '[REDACTED]'; then
+    fail "record reached the backend but nothing was masked"
+  else
+    pass "both secrets arrived as [REDACTED]"
+  fi
+fi
+
+# 5. Resource exhaustion: oversized body (ADR-0010, step 1).
 probe "oversized body is rejected"
 # Through a file, not an argument. Passing six megabytes on the command line
 # fails with "Argument list too long" before curl sends anything, and the probe
@@ -113,7 +150,7 @@ else
   fail "got $code, want 413 or 400"
 fi
 
-# 5. Resource exhaustion: unbounded attribute map.
+# 6. Resource exhaustion: unbounded attribute map.
 #
 # This probe and the next one verify that the endpoint survives the input and
 # answers, not that the cap was applied to the stored record. Reading the
@@ -127,7 +164,7 @@ code=$(status -X POST "$INGEST/v1/logs" -H "$JSON" -H "$AUTH" \
   -d "{\"records\":[{\"body\":\"probe-attrs\",\"attributes\":{$attrs}}]}")
 [ "$code" = "202" ] && pass "202, capped by the limits stage" || fail "got $code"
 
-# 6. Cardinality abuse.
+# 7. Cardinality abuse.
 probe "high-cardinality flood is survived"
 ok=true
 for i in $(seq 1 60); do
@@ -137,7 +174,7 @@ for i in $(seq 1 60); do
 done
 $ok && pass "accepted, guard is unit-tested" || fail "requests were refused"
 
-# 7. Forged identity header with no trusted-proxy mode configured.
+# 8. Forged identity header with no trusted-proxy mode configured.
 probe "identity header is ignored without trusted proxy"
 marker2="probe-header-$(date +%s)"
 code=$(status -X POST "$INGEST/v1/logs" -H "$JSON" -H "$AUTH" \
@@ -145,13 +182,13 @@ code=$(status -X POST "$INGEST/v1/logs" -H "$JSON" -H "$AUTH" \
   -d "{\"records\":[{\"body\":\"$marker2\"}]}")
 [ "$code" = "202" ] && pass "header carries no authority" || fail "got $code"
 
-# 8. Wire format strictness (ADR-0012).
+# 9. Wire format strictness (ADR-0012).
 probe "unknown field is rejected and named"
 out=$(body -X POST "$INGEST/v1/logs" -H "$JSON" -H "$AUTH" \
   -d '{"records":[{"body":"hi","severtyText":"ERROR"}]}')
 echo "$out" | grep -q "severtyText" && pass "names the field" || fail "response did not name it: $out"
 
-# 9. Transport surface.
+# 10. Transport surface.
 probe "wrong content type is rejected"
 code=$(status -X POST "$INGEST/v1/logs" -H "Content-Type: text/plain" -H "$AUTH" -d 'not json')
 [ "$code" = "415" ] && pass "$code" || fail "got $code, want 415"
@@ -160,7 +197,7 @@ probe "GET on the ingestion path is rejected"
 code=$(status "$INGEST/v1/logs" -H "$AUTH")
 [ "$code" = "405" ] && pass "$code" || fail "got $code, want 405"
 
-# 10. Rate limiting (IR1).
+# 11. Rate limiting (IR1).
 probe "a burst is rate limited"
 # Concurrently, and well above the burst ceiling. Sequential curl cannot outrun
 # the default refill rate — the first version of this probe sent 400 requests
