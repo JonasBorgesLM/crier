@@ -239,6 +239,13 @@ jobs:
         with:
           path: ${{ runner.temp }}/artifacts
 
+      # TEMPORARY — diagnosing #67: core/v0.2.0 uploaded and downloaded the
+      # apidiff artifact successfully (confirmed via `gh run download`), but
+      # the "Assemble release notes" step below could not find it at the
+      # expected path. Remove this step once that is understood.
+      - name: DEBUG list downloaded artifacts
+        run: find "$RUNNER_TEMP/artifacts" -exec ls -la {} \;
+
       - name: Assemble release notes
         run: |
           diff_file="$RUNNER_TEMP/artifacts/apidiff/apidiff.txt"
