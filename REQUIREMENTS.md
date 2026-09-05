@@ -97,11 +97,28 @@ Threats explicitly considered (detailed in ADR-0008 and ADR-0010):
     ships inside it. Building a release on an unsupported toolchain
     distributes standard-library code that is known to be unpatched, which
     makes the building toolchain part of the attack surface rather than a
-    detail of the build.
+    detail of the build. `cmd/crierd`'s own `go` directive follows this same
+    policy — it tracks the supported toolchain it is actually built and
+    tested with, not the library floor it has no reason to inherit, since
+    nothing imports it to strand.
 
   The two are independent: the daemon moving to a newer toolchain says nothing
   about what a library may promise, and a library's floor never constrains what
   the daemon is built with.
+
+  **When the library floor moves.** Never on a schedule, and never because a
+  vulnerability scan came back red at the floor — the floor is the *lowest
+  viable* version, and "viable" is a property of what the code needs, not of
+  when a scan last ran. It moves only when something concrete makes the
+  current floor genuinely non-viable: a dependency the project has no
+  reasonable alternative to requires a newer minimum (ADR-0018's `go 1.25`
+  from `google.golang.org/grpc` is the shape of this, though it was avoided
+  there by choosing a different dependency instead — the point is the same
+  reasoning applies whether the answer is "move the floor" or "don't take the
+  dependency"), or a language feature is worth the compatibility cost it
+  imposes on every consumer still building with the old floor. Either
+  justification is written down as its own ADR before the `go` directive
+  changes, per NFR7 — this is a structural decision, not a version bump.
 
   Both pipelines follow this. In CI, `cmd/crierd` builds and tests on the
   supported toolchain and library modules at their floor; on the release path,

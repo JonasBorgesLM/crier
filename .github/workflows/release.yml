@@ -81,6 +81,10 @@ jobs:
     name: Verify ${{ needs.resolve.outputs.module }}
     needs: resolve
     runs-on: ubuntu-latest
+    outputs:
+      # Surfaced in the release notes (#44) — a reader should not have to open
+      # a workflow run from a year ago to learn what built a release.
+      toolchain_version: ${{ steps.toolchain.outputs.version }}
     steps:
       # Full tag history (#53): the API-diff step below finds this module's
       # previous release by listing its own tags, which a shallow checkout
@@ -95,7 +99,10 @@ jobs:
           cache-dependency-path: ${{ needs.resolve.outputs.module }}/go.mod
 
       - name: Report the toolchain in use
-        run: echo "${{ needs.resolve.outputs.module }} is verified with $(go version)"
+        id: toolchain
+        run: |
+          echo "${{ needs.resolve.outputs.module }} is verified with $(go version)"
+          echo "version=$(go version | awk '{print $3}')" >> "$GITHUB_OUTPUT"
 
       # A tag is immutable once anyone has fetched it. Everything that can fail
       # is checked before the release exists, never after.
@@ -198,6 +205,11 @@ jobs:
     needs: [resolve, verify]
     if: needs.resolve.outputs.is_binary == 'true'
     runs-on: ubuntu-latest
+    outputs:
+      # Every matrix combination resolves the identical toolchain (same
+      # go-version input below), so which one's output wins here is
+      # arbitrary but never different (#44).
+      toolchain_version: ${{ steps.toolchain.outputs.version }}
     strategy:
       matrix:
         include:
@@ -214,7 +226,10 @@ jobs:
           cache-dependency-path: ${{ needs.resolve.outputs.module }}/go.mod
 
       - name: Report the toolchain in use
-        run: echo "${{ needs.resolve.outputs.module }} binaries are built with $(go version)"
+        id: toolchain
+        run: |
+          echo "${{ needs.resolve.outputs.module }} binaries are built with $(go version)"
+          echo "version=$(go version | awk '{print $3}')" >> "$GITHUB_OUTPUT"
 
       - name: Build
         working-directory: ${{ needs.resolve.outputs.module }}
@@ -278,11 +293,23 @@ jobs:
             exit 1
           fi
 
+          # Which toolchain produced this release (#44) — a reader
+          # shouldn't have to open a workflow run from a year ago to learn
+          # it. A command module ships a built binary, so that's the
+          # toolchain that matters; a library ships source, so what matters
+          # is the toolchain that verified it at its promised floor.
+          if [ '${{ needs.resolve.outputs.is_binary }}' = 'true' ]; then
+            toolchain_line='Binaries built with `${{ needs.binaries.outputs.toolchain_version }}`.'
+          else
+            toolchain_line='Verified with `${{ needs.verify.outputs.toolchain_version }}`.'
+          fi
+
           notes="$RUNNER_TEMP/notes.md"
           {
             printf '## %s %s\n\n' \
               '${{ needs.resolve.outputs.module }}' \
               '${{ needs.resolve.outputs.version }}'
+            printf '%s\n\n' "$toolchain_line"
             printf '### API changes\n\n```\n'
             cat "$diff_file"
             printf '```\n'

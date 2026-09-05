@@ -164,6 +164,16 @@ go install github.com/JonasBorgesLM/crier/cmd/crierd@latest   # the daemon
 go get github.com/JonasBorgesLM/crier/core                    # the library
 ```
 
+Two different toolchain policies apply here, deliberately (NFR2). The
+released `crierd` binaries are built on the current supported Go toolchain —
+a command has no consumers to strand, so there is no reason to build it on an
+old one. `go install`ing it yourself compiles it with whatever toolchain you
+have; on an unsupported one, that is your decision to make knowingly, not one
+crier makes for you. The library modules (`core`, each exporter, each
+receiver) keep their own floor instead — currently Go 1.24 — because the `go`
+directive there is a compatibility promise to whoever imports them, and you
+choose the toolchain that builds your own program.
+
 ## Usage
 
 ### Embedded library
