@@ -100,6 +100,36 @@ type RedactionConfig struct {
 type FilterConfig struct {
 	MinSeverity int     `json:"minSeverity"`
 	SampleRate  float64 `json:"sampleRate"`
+
+	// PerSource overrides MinSeverity/SampleRate by attested source identity
+	// (ADR-0008, core.Filter.PerSource).
+	PerSource map[string]SourceFilterConfig `json:"perSource"`
+
+	// Rules additionally narrow what a source's own settings above already
+	// keep, matched against one LogRecord attribute (ADR-0022,
+	// core.AttributeRule) — never the other direction. Evaluated in order;
+	// the first match applies.
+	Rules []AttributeRuleConfig `json:"rules"`
+}
+
+// SourceFilterConfig is one entry of FilterConfig.PerSource. A nil field
+// inherits the global setting, which is why both are pointers rather than
+// plain values (core.SourceFilter).
+type SourceFilterConfig struct {
+	MinSeverity *int     `json:"minSeverity"`
+	SampleRate  *float64 `json:"sampleRate"`
+}
+
+// AttributeRuleConfig is one entry of FilterConfig.Rules (core.AttributeRule).
+// Exactly one of Value and ValuePrefix, and at least one of MinSeverity and
+// SampleRate, must be set — core.Filter.Validate refuses anything else at
+// startup rather than accepting a rule that silently changes nothing.
+type AttributeRuleConfig struct {
+	Key         string   `json:"key"`
+	Value       string   `json:"value"`
+	ValuePrefix string   `json:"valuePrefix"`
+	MinSeverity *int     `json:"minSeverity"`
+	SampleRate  *float64 `json:"sampleRate"`
 }
 
 // AuthConfig configures how a caller's identity is established (ADR-0008).

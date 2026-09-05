@@ -296,13 +296,47 @@ func buildCardinality(cfg LimitsConfig) *core.CardinalityGuard {
 }
 
 func buildFilter(cfg FilterConfig) *core.Filter {
-	if cfg.MinSeverity == 0 && cfg.SampleRate == 0 {
+	if cfg.MinSeverity == 0 && cfg.SampleRate == 0 && len(cfg.PerSource) == 0 && len(cfg.Rules) == 0 {
 		return nil
 	}
-	return &core.Filter{
+
+	f := &core.Filter{
 		MinSeverity: core.Severity(cfg.MinSeverity),
 		SampleRate:  cfg.SampleRate,
 	}
+
+	if len(cfg.PerSource) > 0 {
+		f.PerSource = make(map[string]core.SourceFilter, len(cfg.PerSource))
+		for source, sf := range cfg.PerSource {
+			f.PerSource[source] = core.SourceFilter{
+				MinSeverity: severityPtr(sf.MinSeverity),
+				SampleRate:  sf.SampleRate,
+			}
+		}
+	}
+
+	for _, r := range cfg.Rules {
+		f.Rules = append(f.Rules, core.AttributeRule{
+			Key:         r.Key,
+			Value:       r.Value,
+			ValuePrefix: r.ValuePrefix,
+			MinSeverity: severityPtr(r.MinSeverity),
+			SampleRate:  r.SampleRate,
+		})
+	}
+
+	return f
+}
+
+// severityPtr converts the config's *int (what JSON decodes a severity
+// number into) to the *core.Severity core.SourceFilter and core.AttributeRule
+// actually take. Nil stays nil — both mean "inherit", not "zero".
+func severityPtr(v *int) *core.Severity {
+	if v == nil {
+		return nil
+	}
+	s := core.Severity(*v)
+	return &s
 }
 
 // adminMux serves liveness, readiness, and metrics (NFR5, ADR-0015).

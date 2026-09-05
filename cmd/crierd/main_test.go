@@ -164,6 +164,17 @@ func TestBuildRefusesConfigurationThatCannotBeRight(t *testing.T) {
 			mutate: func(c *Config) { c.Exporters[0].Filter = FilterConfig{SampleRate: 2} },
 			want:   "filter",
 		},
+		{
+			// ADR-0022: a rule that changes nothing is a config mistake, and
+			// core.Filter.Validate refuses it the same way it refuses any
+			// other impossible Filter setting — reachable from the pipeline
+			// config, not only from a destination's.
+			name: "attribute rule with no narrowing field",
+			mutate: func(c *Config) {
+				c.Filter = FilterConfig{Rules: []AttributeRuleConfig{{Key: "path", Value: "/health"}}}
+			},
+			want: "rule that changes nothing",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := workingConfig()
@@ -237,6 +248,58 @@ func TestBuildFanOutAttachesPerDestinationFilter(t *testing.T) {
 		t.Errorf("open destination (no Filter configured) received %d records, want 2 (unnarrowed)", got)
 	}
 }
+
+// Issue #71 / ADR-0022: PerSource and Rules must reach core.Filter from the
+// daemon's own config, not only from a destination's (#45 already covers
+// that path). Before this, FilterConfig didn't even have these fields, so
+// crierd could not configure per-source overrides or attribute rules at all.
+func TestBuildFilterWiresPerSourceAndRules(t *testing.T) {
+	t.Run("zero config builds no filter", func(t *testing.T) {
+		if got := buildFilter(FilterConfig{}); got != nil {
+			t.Errorf("buildFilter(zero value) = %+v, want nil", got)
+		}
+	})
+
+	t.Run("PerSource alone is enough to build one", func(t *testing.T) {
+		f := buildFilter(FilterConfig{
+			PerSource: map[string]SourceFilterConfig{"noisy": {MinSeverity: ptrTo(int(core.SeverityError))}},
+		})
+		if f == nil {
+			t.Fatal("PerSource-only config built no filter")
+		}
+		override, ok := f.PerSource["noisy"]
+		if !ok {
+			t.Fatal("PerSource[\"noisy\"] is missing")
+		}
+		if override.MinSeverity == nil || *override.MinSeverity != core.SeverityError {
+			t.Errorf("PerSource[\"noisy\"].MinSeverity = %v, want ERROR", override.MinSeverity)
+		}
+	})
+
+	t.Run("Rules alone is enough to build one, and reaches core.AttributeRule", func(t *testing.T) {
+		f := buildFilter(FilterConfig{
+			Rules: []AttributeRuleConfig{{
+				Key: "path", ValuePrefix: "/health",
+				SampleRate: ptrTo(core.SampleNothing),
+			}},
+		})
+		if f == nil {
+			t.Fatal("Rules-only config built no filter")
+		}
+		if len(f.Rules) != 1 {
+			t.Fatalf("built %d rules, want 1", len(f.Rules))
+		}
+		rule := f.Rules[0]
+		if rule.Key != "path" || rule.ValuePrefix != "/health" {
+			t.Errorf("rule = %+v, want Key=path ValuePrefix=/health", rule)
+		}
+		if rule.SampleRate == nil || *rule.SampleRate != core.SampleNothing {
+			t.Errorf("rule.SampleRate = %v, want SampleNothing", rule.SampleRate)
+		}
+	})
+}
+
+func ptrTo[T any](v T) *T { return &v }
 
 // Redaction off is a choice someone types, not one a zero value makes
 // (ADR-0014).
