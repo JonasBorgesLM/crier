@@ -181,6 +181,22 @@ opposite of what it is there to prove. That is the failure class CLAUDE.md's
 convenience. Either commit `go.work` and set `GOWORK=off` in the workflows, or
 leave it untracked in `.gitignore` and let each developer create their own.
 
+**This one bit for real, not hypothetically.** `core.Destination` gained a
+`Filter` field (#45) while `go.work` was untracked and only in `.gitignore`,
+per the choice above. Every local `go build`/`go test` in `cmd/crierd` across
+several commits stayed green, because `go.work` resolved `core` to the
+sibling directory regardless of what `cmd/crierd/go.mod` required — masking
+that its `require` line still pointed at `core v0.1.0`, which has no `Filter`
+field. CI has no `go.work` (never committed) and resolves the real published
+module, so pushing to `develop` failed `lint (cmd/crierd)`, `test
+(cmd/crierd)`, and `govulncheck (cmd/crierd)` all at once, on a change that
+had looked fine locally through several commits. Fixed by cutting
+`core/v0.2.0` and pointing `cmd/crierd` at it (`go mod edit
+-require=...@v0.2.0 && go mod tidy`), verified with `GOWORK=off` specifically
+so the check means what it claims. The lesson: a green local build across a
+`core` API change proves nothing about a dependent module unless it was
+checked with `GOWORK=off`, or by pushing and watching CI.
+
 ## Rehearsing it without publishing
 
 The whole sequence can be run against a local clone, which is how the `go get`

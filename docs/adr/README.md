@@ -30,6 +30,8 @@ the time remains readable.
 | [0019](0019-unlisted-sources-share-a-pool.md) | Unlisted sources share a pool, not a per-source default | Accepted — supersedes part of ADR-0011 | — |
 | [0020](0020-receiver-module-placement.md) | The HTTP receiver is its own module | Accepted — extends ADR-0003 | — |
 | [0021](0021-wire-contract-edges.md) | Where the v1 wire contract ends | Accepted — qualifies ADR-0012 | — |
+| [0022](0022-attribute-matched-sampling.md) | Attribute-matched sampling narrows, never widens | Accepted — extends ADR-0010 | — |
+| [0023](0023-dashboards-ship-as-a-template.md) | Dashboards ship as a template, not as a provisioner | Accepted | — |
 
 ADR-0008 through ADR-0012 came out of the first review pass; ADR-0013 through
 ADR-0015 out of the second. Both passes are recorded in
@@ -41,7 +43,9 @@ invisible at the import site needs a guard, not a sentence. ADR-0019 came out
 of implementing ADR-0011 and finding that one sentence of it could not be
 built as written. ADR-0020 came out of starting the receiver and finding that
 ADR-0003 never said where one lives, and ADR-0021 out of the same work finding two
-edges of the wire contract that only the code knew about.
+edges of the wire contract that only the code knew about. ADR-0022 is the first
+to come from a consumer rather than from building this: `task-api` found a
+selector the filter stage does not have.
 
 ## Open questions
 
@@ -49,19 +53,17 @@ Decisions deferred deliberately, each owned by an issue on the board. They are
 listed here rather than left implicit, because an undecided question that looks
 decided is the one that gets implemented by accident.
 
-- **Record-level filter/sample criteria.** ADR-0010 scopes the filter/sample
-  stage to severity threshold and sampling; it does not say whether the stage
-  may also match on `LogRecord` attributes (as opposed to source identity
-  only). Owned by [issue #71](https://github.com/JonasBorgesLM/crier/issues/71).
-- **Dashboard provisioning as a crier-owned module.** Whether crier ships an
-  opt-in package/subcommand that provisions backend-specific dashboards (e.g.
-  SigNoz) on a consumer's behalf, and if so where it lives under the
-  multi-module layout (ADR-0003) and how it holds the backend credential
-  (NFR4). Owned by [issue #72](https://github.com/JonasBorgesLM/crier/issues/72).
+None outstanding.
 
-The one open question that used to stand here — export worker topology, left
-open by ADR-0013 — was decided in [ADR-0016](0016-export-worker-topology.md)
-before the export layer was written.
+Questions that used to stand here: export worker topology, left open by
+ADR-0013, decided in [ADR-0016](0016-export-worker-topology.md) before the
+export layer was written; record-level filter criteria, decided in
+[ADR-0022](0022-attribute-matched-sampling.md) — attribute rules may narrow
+what a source keeps and never widen it, which is what keeps a client-asserted
+selector from becoming a way around a limit an operator set; and backend
+dashboard provisioning, decided in
+[ADR-0023](0023-dashboards-ship-as-a-template.md) — the template ships, the
+provisioner does not.
 
 ## Conventions
 
