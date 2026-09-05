@@ -72,6 +72,17 @@ type ChainConfig struct {
 // handler, because everything below it reads the body: a guard that runs after
 // the read has already allowed the work it exists to prevent.
 func (rc *Receiver) Handler(cfg ChainConfig) (http.Handler, error) {
+	// Fails loudly rather than silently (ADR-0008's own standard for
+	// trusted-proxy mode, applied here to what it hands the rate limiter):
+	// behind a trusted proxy every request arrives from that same peer, so
+	// the default rate-limit key — peer address — puts every tenant behind
+	// the gateway in one shared bucket. A single noisy or malicious source
+	// then exhausts the budget for everyone else, silently, because nothing
+	// here ever looked wrong (issue #74).
+	if _, trustedProxy := rc.auth.(*TrustedProxy); trustedProxy && !cfg.DisableRateLimit && cfg.RateLimitKey == nil {
+		return nil, errors.New("auth is a *TrustedProxy but ChainConfig.RateLimitKey is nil: every request arrives from the proxy, so limiting by peer address puts every tenant behind it in one shared bucket; pass (*TrustedProxy).KeyFunc() as RateLimitKey, or set DisableRateLimit if that is genuinely intended")
+	}
+
 	maxBody := cfg.MaxBodyBytes
 	if maxBody == 0 {
 		maxBody = DefaultMaxBodyBytes

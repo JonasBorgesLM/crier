@@ -54,7 +54,10 @@ func Example() {
 
 // ExampleNewTrustedProxy shows crier behind gateway-auth, where identity comes
 // from the gateway's assertion rather than from a credential crier checks
-// itself (IR7).
+// itself (IR7) — wired all the way to the rate limiter, not just constructed
+// (issue #74): behind a reverse proxy every request arrives from that proxy,
+// so the limiter's key has to come from the same trusted extractor as
+// identity does, never from peer address.
 func ExampleNewTrustedProxy() {
 	// Strictly opt-in, and the peers have to be named: a header is only
 	// identity if the peer that set it is one crier was told to believe.
@@ -73,7 +76,28 @@ func ExampleNewTrustedProxy() {
 	fmt.Println("default route accepted:", err == nil)
 	fmt.Println("trusted prefixes:", proxy.TrustedPrefixes())
 
+	buffer, err := core.NewMemoryBuffer(core.MemoryBufferConfig{Capacity: 10_000})
+	if err != nil {
+		panic(err)
+	}
+	pipeline, err := core.NewPipeline(core.PipelineConfig{Buffer: buffer})
+	if err != nil {
+		panic(err)
+	}
+	receiver, err := httpreceiver.New(httpreceiver.Config{Pipeline: pipeline, Auth: proxy})
+	if err != nil {
+		panic(err)
+	}
+
+	// RateLimitKey must come from the same trusted extractor identity does.
+	// Leaving it nil here would build a handler that limits every tenant
+	// behind the gateway as a single caller — Handler refuses that pairing
+	// rather than building it silently.
+	_, err = receiver.Handler(httpreceiver.ChainConfig{RateLimitKey: proxy.KeyFunc()})
+	fmt.Println("handler built:", err == nil)
+
 	// Output:
 	// default route accepted: false
 	// trusted prefixes: [10.0.0.0/8]
+	// handler built: true
 }
