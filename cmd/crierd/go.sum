@@ -1,5 +1,5 @@
-github.com/JonasBorgesLM/crier/core v0.1.0 h1:PerFBum5Qanx+kHrEx8CWY92x90hv1PDz8fDmp0MF58=
-github.com/JonasBorgesLM/crier/core v0.1.0/go.mod h1:lQLrnt5MTokc7ryLVC6/czVGq4IrCFq14Yg/52Ms5Hk=
+github.com/JonasBorgesLM/crier/core v0.2.0 h1:+FAgsAc512/7CxblECIxz3EFtf7jnlm8qfeLQkrLH8Y=
+github.com/JonasBorgesLM/crier/core v0.2.0/go.mod h1:lQLrnt5MTokc7ryLVC6/czVGq4IrCFq14Yg/52Ms5Hk=
 github.com/JonasBorgesLM/crier/exporters/otlp v0.1.0 h1:+pksTr4SWEDPp1NNweaRY/U8CngXRJUh78X/d6QiZrU=
 github.com/JonasBorgesLM/crier/exporters/otlp v0.1.0/go.mod h1:nKY6UBrIUSBM6OQRzr2i4q6wOuFDum9smD9AOmYmboo=
 github.com/JonasBorgesLM/crier/receivers/http v0.1.0 h1:RQX/gUiOiv/8j2KJjrQMH5Z5NGXQLKNGx0dkQLqLPVI=
