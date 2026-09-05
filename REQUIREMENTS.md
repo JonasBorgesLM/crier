@@ -127,8 +127,12 @@ Threats explicitly considered (detailed in ADR-0008 and ADR-0010):
   both, whatever the module — a library verified at the floor would otherwise
   be scanned against a standard library that no longer receives fixes.
 
-- **NFR3** Multi-module repository: `core`, each `exporters/<name>`, and
-  `cmd/crierd` are independently versioned modules.
+- **NFR3** Multi-module repository: `core`, each `exporters/<name>`, each
+  `receivers/<name>` (added by ADR-0020, which amends ADR-0003 in place), and
+  `cmd/crierd` are independently versioned modules. `exporters/otlp/integration`
+  is a module too, but a test-only one: it is never published, and
+  `RELEASING.md` depends on that distinction — nothing in the tag pattern that
+  triggers a release matches it.
 - **NFR4** Configuration via environment variables and/or a config file,
   validated eagerly at startup (fail-fast on invalid config). Exporter
   credentials are held as masked secrets, never plain strings, following
