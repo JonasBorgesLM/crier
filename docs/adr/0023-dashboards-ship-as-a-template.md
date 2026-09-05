@@ -79,6 +79,35 @@ the dependency.
   fail-open shape the M6 sweep found six times (V-1 through V-6): a check whose
   failure is indistinguishable from its success.
 
+### Verified on 2026-09-05, against SigNoz v0.139.0
+
+Written before the template existed; this section records what happened when it
+was built, because two claims in the Context above turned out to be wrong, and
+both were wrong in the direction this ADR predicts.
+
+**The header is `SIGNOZ-API-KEY`, not `Authorization: Bearer`.** The bearer
+form — recorded in #72 and repeated in the Context above — returns `401
+unauthenticated` for an API key. It is the session-JWT form.
+
+**The captured template was already stale.** `tags` as an array of strings,
+exactly as captured from a working instance, is rejected on v0.139.0: `value of
+type 'string' was received for field 'tags', try sending 'tagtypes.PostableTag'
+instead?`. Nothing had changed on this side; the version underneath moved. That
+is the whole argument of this ADR arriving as a fact rather than a prediction,
+and it happened between one capture and the next on the same machine.
+
+The rest of the schema was learned the way this ADR prescribes — from the
+instance, not the documentation — helped by an API that names the Go type it
+wanted. Sending a deliberately invalid `plugin.kind` made the server enumerate
+every valid panel kind. The shapes, and the two-part verification (`201` on
+POST, then all ten panels executed against `/api/v5/query_range` returning real
+rows) are written down in
+[`../observability/signoz/README.md`](../observability/signoz/README.md).
+
+Host and server panels were dropped rather than shipped empty: the instance
+carries zero metric names, because crier ships logs and nothing else was
+feeding it metrics.
+
 ### What would reverse this
 Two things, either sufficient, neither of which has happened:
 
