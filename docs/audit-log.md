@@ -77,7 +77,7 @@ allowed; dressing it up is not, so:
 
 | ID | Finding | Severity | Status |
 | --- | --- | --- | --- |
-| A-6 | **Metrics are collected and never exposed.** NFR5 requires the service to expose internal metrics. `crierd` builds a `CountingMetrics` and wires it through every stage, but the admin listener serves only `/healthz` and `/readyz`. Every counter the pipeline maintains is unreadable from outside the process, which makes the whole self-observability requirement decorative in the standalone binary. | High | Open — [#50](https://github.com/JonasBorgesLM/crier/issues/50) |
+| A-6 | **Metrics are collected and never exposed.** NFR5 requires the service to expose internal metrics. `crierd` builds a `CountingMetrics` and wires it through every stage, but the admin listener serves only `/healthz` and `/readyz`. Every counter the pipeline maintains is unreadable from outside the process, which makes the whole self-observability requirement decorative in the standalone binary. | High | Fixed — [#50](https://github.com/JonasBorgesLM/crier/issues/50) |
 | A-7 | **NFR3's text predates ADR-0020.** It lists `core`, `exporters/<name>` and `cmd/crierd` as the module kinds. There are four; `receivers/<name>` was added by ADR-0020 and the requirement was never updated. The ADR is authoritative and the requirement contradicts it. | Low | Open — [#51](https://github.com/JonasBorgesLM/crier/issues/51) |
 | A-8 | **`receivers/http` could not be released.** The release workflow's tag trigger listed `core`, `exporters/*` and `cmd/crierd`. Pushing `receivers/http/v0.1.0` would have done nothing, silently. | Medium | Fixed in this pass |
 | A-9 | **Every dependent module is unpublishable as it stands.** `exporters/otlp`, `receivers/http` and `cmd/crierd` require `crier/core` at a version that does not exist, masked by a local `replace`. A consumer ignores a dependency's `replace` directives, so `go get` on any of them fails to resolve. This is not a bug in any module; it is a release *order* nobody had written down. | High | Documented — [`RELEASING.md`](../RELEASING.md) |
@@ -152,8 +152,8 @@ the tool fail, not by reading the code.
 | V-2 | CI, `core has no third-party deps` | `go list` failing produced an empty dependency list, which reads as "none". | Fixed |
 | V-3 | CI, `Verify formatting` | `gofmt -l` prints nothing both when the tree is clean and when it cannot read the tree. | Fixed |
 | V-4 | CI, `integration (otlp)` | The suite skips itself without a container runtime — correct for a developer, wrong in CI, where a skipped suite exits 0 and nothing is tested against a real collector. | Fixed |
-| V-5 | `release.yml`, release notes | A missing API diff falls back to `(no API diff available)` and the release publishes, quietly unmeeting NFR9. Cannot be made fatal until A-9 is resolved, since `gorelease` legitimately cannot run today. | [#53](https://github.com/JonasBorgesLM/crier/issues/53) |
-| V-6 | `release.yml`, tag signature | A warning does not fail a job, and it merges "not signed" with "CI cannot check". Needs an allowed-signers file before it can gate. | [#54](https://github.com/JonasBorgesLM/crier/issues/54) |
+| V-5 | `release.yml`, release notes | A missing API diff falls back to `(no API diff available)` and the release publishes, quietly unmeeting NFR9. Cannot be made fatal until A-9 is resolved, since `gorelease` legitimately cannot run today. | Fixed — [#53](https://github.com/JonasBorgesLM/crier/issues/53) |
+| V-6 | `release.yml`, tag signature | A warning does not fail a job, and it merges "not signed" with "CI cannot check". Needs an allowed-signers file before it can gate. | Fixed — [#54](https://github.com/JonasBorgesLM/crier/issues/54) |
 
 The common repair is the same in every case: resolve the tool's output into a
 variable so its exit status can be checked separately from its content, and
@@ -184,12 +184,22 @@ surprises during implementation.
   export layer was built.
 - ~~**Draft interfaces predate ADR-0009 and ADR-0013.**~~ Both landed carrying
   `ObservedTimestamp`, and `FanOut` documents retry as composed inside it.
-- **Metrics are not exposed** (A-6). Tracked in
+- ~~**Metrics are not exposed** (A-6).~~ `crierd`'s admin listener now serves
+  `GET /metrics` in the Prometheus text exposition format, rendering
+  `CountingMetrics.Snapshot()`. Closed by
   [#50](https://github.com/JonasBorgesLM/crier/issues/50).
-- **Two release-path checks still fail open** (V-5, V-6), tracked in
-  [#53](https://github.com/JonasBorgesLM/crier/issues/53) and
-  [#54](https://github.com/JonasBorgesLM/crier/issues/54). Neither can be
-  closed before A-9 and an allowed-signers file respectively.
+- ~~**A release-path check failed open on a missing or empty API diff**
+  (V-5).~~ A-9's resolution at v0.1.0 unblocked it: `gorelease` now runs with
+  an explicit `-base` (this module's own previous tag, or `none` for a first
+  release, removing the proxy-timing race a bare `gorelease` call was subject
+  to) and a non-zero exit — or a missing/empty artifact downstream — fails
+  the release instead of publishing a placeholder. Closed by
+  [#53](https://github.com/JonasBorgesLM/crier/issues/53).
+- ~~**A second release-path check failed open on tag signature verification**
+  (V-6).~~ `.github/allowed_signers` now publishes the release SSH key, and
+  `release.yml` points `gpg.ssh.allowedSignersFile` at it and gates on
+  `git verify-tag` instead of only warning. Closed by
+  [#54](https://github.com/JonasBorgesLM/crier/issues/54).
 - **The release order is documented, not enforced** (A-9). Nothing stops
   someone tagging a dependent module before `core`; the result is a published
   module a consumer cannot resolve. See [`RELEASING.md`](../RELEASING.md).

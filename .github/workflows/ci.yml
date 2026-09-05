@@ -34,6 +34,14 @@ env:
   # the floor reports findings no change here can resolve, and a check that
   # cannot go green stops being read.
   GO_SUPPORTED_VERSION: "stable"
+  # Pinned like every other tool here (golangci-lint, every GitHub Action,
+  # every go.mod requirement) rather than @latest (#75) — an unpinned
+  # vulnerability scanner changes what it reports on a date nobody chose, with
+  # nothing in any diff explaining why. Same value as release.yml; change them
+  # together. Bump on a stated trigger (a vulnerability-database format
+  # change, a govulncheck behavior change breaking something downstream) —
+  # never on a schedule, and never because this scan happened to go red.
+  GOVULNCHECK_VERSION: "v1.7.0"
 
 jobs:
   # The repository is multi-module (ADR-0003), so a green root build does not
@@ -141,7 +149,7 @@ jobs:
       - name: go test
         run: go test -race -shuffle=on -coverprofile=coverage.out -covermode=atomic ./...
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: coverage-${{ strategy.job-index }}
           path: ${{ matrix.module }}/coverage.out
@@ -310,7 +318,7 @@ jobs:
       - name: Run govulncheck
         working-directory: ${{ matrix.module }}
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }}
           govulncheck ./...
 
   # A single required check to protect the branch with, so adding a module

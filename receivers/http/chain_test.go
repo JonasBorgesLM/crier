@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/JonasBorgesLM/crier/core"
 )
 
 func (h *harness) chained(t *testing.T, cfg ChainConfig) http.Handler {
@@ -14,6 +16,26 @@ func (h *harness) chained(t *testing.T, cfg ChainConfig) http.Handler {
 		t.Fatalf("Handler: %v", err)
 	}
 	return handler
+}
+
+// receiverWithAuth builds a minimal Receiver for tests that need a specific
+// Authenticator — the shared harness always uses static credentials, which
+// cannot exercise a check that keys off the concrete Authenticator type.
+func receiverWithAuth(t *testing.T, auth Authenticator) *Receiver {
+	t.Helper()
+	buffer, err := core.NewMemoryBuffer(core.MemoryBufferConfig{Capacity: 64, BatchSize: 64})
+	if err != nil {
+		t.Fatalf("NewMemoryBuffer: %v", err)
+	}
+	pipeline, err := core.NewPipeline(core.PipelineConfig{Buffer: buffer})
+	if err != nil {
+		t.Fatalf("NewPipeline: %v", err)
+	}
+	receiver, err := New(Config{Pipeline: pipeline, Auth: auth})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return receiver
 }
 
 func chainRequest(t *testing.T, body, contentType string) *http.Request {
@@ -180,5 +202,53 @@ func TestRateLimitKeyCanComeFromTheTrustedProxy(t *testing.T) {
 	// resolves to — moat owns that, and tests it.
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("status = %d (%s), want 202", w.Code, w.Body)
+	}
+}
+
+// Issue #74: behind a trusted proxy, every request arrives from that same
+// proxy, so limiting by peer address — RateLimitKey's default — puts every
+// tenant behind the gateway in one shared bucket. Handler refuses that
+// pairing rather than building it silently; DisableRateLimit and the proxy's
+// own KeyFunc are both accepted ways to say the pairing was considered.
+//
+// Unlike TestRateLimitKeyCanComeFromTheTrustedProxy above, this receiver's
+// Auth really is the *TrustedProxy — the check keys off the concrete
+// Authenticator type, which the shared harness's static credentials cannot
+// exercise.
+func TestHandlerValidatesTrustedProxyRateLimitPairing(t *testing.T) {
+	proxy, err := NewTrustedProxy(TrustedProxyConfig{TrustedCIDRs: []string{"10.0.0.0/8"}})
+	if err != nil {
+		t.Fatalf("NewTrustedProxy: %v", err)
+	}
+	receiver := receiverWithAuth(t, proxy)
+
+	for _, tc := range []struct {
+		name    string
+		cfg     ChainConfig
+		wantErr bool
+	}{
+		{"no RateLimitKey, rate limiting on", ChainConfig{}, true},
+		{"no RateLimitKey, rate limiting disabled", ChainConfig{DisableRateLimit: true}, false},
+		{"RateLimitKey from the same proxy", ChainConfig{RateLimitKey: proxy.KeyFunc()}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := receiver.Handler(tc.cfg)
+			if tc.wantErr && err == nil {
+				t.Error("Handler accepted the configuration, want a refusal")
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("Handler refused the configuration: %v", err)
+			}
+		})
+	}
+}
+
+// A non-trusted-proxy Authenticator has no such hazard: the peer really is
+// the caller, so the default rate-limit key (peer address) is a reasonable
+// choice, and Handler must not refuse it.
+func TestHandlerAcceptsNoRateLimitKeyForNonTrustedProxyAuth(t *testing.T) {
+	h := newHarness(t, harnessConfig{})
+	if _, err := h.receiver.Handler(ChainConfig{}); err != nil {
+		t.Fatalf("Handler refused static-credential auth with no RateLimitKey: %v", err)
 	}
 }

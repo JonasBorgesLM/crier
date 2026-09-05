@@ -294,9 +294,12 @@ Pushing a matching tag runs `.github/workflows/release.yml`, which:
 - runs build, vet, tests and `govulncheck` **before** the release exists,
   because a tag is immutable once anyone has fetched it;
 - generates release notes from the real API diff with `gorelease` (NFR9), not
-  from memory;
+  from memory — against an explicit base version (this module's own previous
+  tag, or `none` for a first release), and fails the release rather than
+  publishing if `gorelease` cannot produce one (#53);
 - cross-compiles binaries for `cmd/` modules only;
-- checks the tag signature.
+- checks the tag signature against `.github/allowed_signers`, gating the
+  release on it (#54).
 
 ## On signed tags
 
@@ -306,17 +309,20 @@ Tags are signed. Verify locally before pushing:
 git verify-tag core/v0.1.0
 ```
 
-**CI's check is a warning, not a gate, and that is deliberate.** The signing key
-here is an SSH key, and `git verify-tag` in CI has no allowed-signers file to
-check it against — a hard failure would block every release on a key CI cannot
-see. Enforcing it properly means publishing an allowed-signers file and
-configuring `gpg.ssh.allowedSignersFile` in the workflow. Until that exists, the
-signature is enforced by the person tagging and merely reported by CI, which is
-worth knowing rather than assuming.
+**CI enforces this, not just reports it (#54).** `.github/allowed_signers`
+publishes the release SSH public key, and `release.yml` points
+`gpg.ssh.allowedSignersFile` at it before calling `git verify-tag` — an
+unsigned tag, or one signed by a key not in that file, fails the release
+before it publishes. A key rotation or a second person tagging releases means
+adding a line to `.github/allowed_signers` first, in its own commit, before
+the first tag signed with the new key.
 
 ## After the release
 
 - Confirm the workflow published what you expected, including the binaries.
-- Confirm the release notes contain a real API diff rather than
-  `(no API diff available)` — that string means `gorelease` failed and nobody
-  noticed.
+- A release existing at all now means `gorelease` exited zero against an
+  explicit base — a failure fails the workflow before publishing, rather than
+  a manual check catching it afterward (#53). A first release's notes
+  legitimately have no `## compatible changes` section, only a
+  suggested-version summary; that is `-base=none` working as documented, not
+  `gorelease` having failed silently.

@@ -29,6 +29,17 @@ type Destination struct {
 	// breaking included: FanOut(Retry(CircuitBreaker(e))), never the reverse
 	// (ADR-0013).
 	Exporter Exporter
+
+	// Filter additionally narrows the batch this destination receives, after
+	// dequeue — the per-exporter narrowing ADR-0010 describes as available on
+	// top of the pre-buffer Filter, never instead of it (FR8). Nil sends
+	// every record the pre-buffer filter already let through.
+	//
+	// A record this filter drops is filtered, not dropped: it goes through
+	// Filter.Keep exactly as the pre-buffer filter does, so it is counted via
+	// RecordsFiltered, never RecordsDropped — a destination that wants less
+	// than the rest is not a delivery failure.
+	Filter *Filter
 }
 
 // BatchMutator is implemented by an exporter that writes to the batch it is
@@ -55,6 +66,24 @@ type BatchMutator interface {
 func mutatesBatch(e Exporter) bool {
 	m, ok := e.(BatchMutator)
 	return ok && m.MutatesBatch()
+}
+
+// narrowForDestination applies a per-destination Filter without mutating
+// batch's backing array.
+//
+// Filter.KeepBatch compacts in place and reuses the slice it is given, which
+// is exactly wrong here: batch is shared across every destination for the
+// duration of Export (ADR-0016), and compacting one destination's view would
+// corrupt whatever a concurrently running sibling sees through the same
+// backing array. A fresh slice is the price of that safety.
+func narrowForDestination(filter *Filter, batch []LogRecord) []LogRecord {
+	kept := make([]LogRecord, 0, len(batch))
+	for i := range batch {
+		if filter.Keep(&batch[i], batch[i].Resource.ServiceName) {
+			kept = append(kept, batch[i])
+		}
+	}
+	return kept
 }
 
 // cloneBatch deep-copies a batch, so a mutating exporter cannot reach its
@@ -147,6 +176,24 @@ func NewFanOut(cfg FanOutConfig) (*FanOut, error) {
 		metrics = NopMetrics{}
 	}
 
+	// Validated here, not restated: a destination filter that cannot be
+	// right fails at startup (NFR4), the same way NewPipeline validates its
+	// own Filter. Metrics defaults to the fan-out's own, mirroring
+	// NewPipeline again, so a destination filter counts through the same
+	// RecordsFiltered an operator already watches unless it was told to do
+	// otherwise.
+	for _, d := range cfg.Destinations {
+		if d.Filter == nil {
+			continue
+		}
+		if err := d.Filter.Validate(); err != nil {
+			return nil, fmt.Errorf("destination %q: filter: %w", d.Name, err)
+		}
+		if d.Filter.Metrics == nil {
+			d.Filter.Metrics = metrics
+		}
+	}
+
 	return &FanOut{
 		destinations: append([]Destination(nil), cfg.Destinations...),
 		timeout:      timeout,
@@ -214,6 +261,17 @@ func (f *FanOut) Export(ctx context.Context, batch []LogRecord) error {
 
 // export sends the batch to one destination under its own deadline.
 func (f *FanOut) export(ctx context.Context, d Destination, batch []LogRecord) error {
+	if d.Filter != nil {
+		batch = narrowForDestination(d.Filter, batch)
+		if len(batch) == 0 {
+			// Narrowed to nothing is this destination successfully receiving
+			// what it asked for, not a failure — and not the same thing as
+			// the batch never reaching it. Counting it as a failure here
+			// would surface as DropBackendUnavailable one layer up, which is
+			// exactly the data loss that did not happen.
+			return nil
+		}
+	}
 	if mutatesBatch(d.Exporter) {
 		batch = cloneBatch(batch)
 	}
