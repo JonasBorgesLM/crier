@@ -1,6 +1,6 @@
 module github.com/JonasBorgesLM/crier/cmd/crierd
 
-go 1.27.1
+go 1.26
 
 require (
 	github.com/JonasBorgesLM/crier/core v0.2.0

@@ -300,6 +300,15 @@ jobs:
           cache-dependency-path: ${{ matrix.module }}/go.mod
       # v8 is the line that runs golangci-lint v2 — v6 installs v1, which
       # rejects .golangci.yml's `version: "2"` schema outright.
+      #
+      # This pin is also a ceiling on cmd/crierd's own `go` directive (#44):
+      # golangci-lint refuses to load a module whose go directive names a
+      # newer language version than the one it was itself built with
+      # ("can't load config: the Go language version ... is lower than the
+      # targeted Go version"). v2.12.2 was built with go1.26, which is why
+      # cmd/crierd's go.mod says `go 1.26`, not the literal current value of
+      # GO_SUPPORTED_VERSION: stable — bumping this pin is what raises that
+      # ceiling.
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
