@@ -71,7 +71,12 @@ jobs:
     needs: resolve
     runs-on: ubuntu-latest
     steps:
+      # Full tag history (#53): the API-diff step below finds this module's
+      # previous release by listing its own tags, which a shallow checkout
+      # would not have.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@v7
         with:
@@ -109,12 +114,54 @@ jobs:
       # NFR9: the changelog is generated from the real API diff, not written
       # from memory. A hand-written changelog documents what the author meant
       # to change; this documents what actually changed.
+      #
+      # -base is passed explicitly rather than left for gorelease to infer
+      # (#53). Left to itself, gorelease asks the module proxy for this
+      # module's latest published version — and once the proxy has indexed
+      # the tag this workflow just pushed (a race this workflow does not
+      # control), that answer is the release being published, so gorelease
+      # diffs it against itself, finds nothing, and suggests a patch bump
+      # inside its own release's notes. Reading the previous version from
+      # this module's own tag history removes the race instead of hoping to
+      # win it.
       - name: Generate API diff
         working-directory: ${{ needs.resolve.outputs.module }}
         run: |
+          module='${{ needs.resolve.outputs.module }}'
+          tag='${{ github.ref_name }}'
+
+          # Newest first; git's version-aware ref sort handles the vX.Y.Z
+          # suffix correctly since the module-path prefix is identical across
+          # every tag being compared. Plain variables and head/sed rather than
+          # a bash array, so this is the same on every shell that runs it.
+          sorted=$(git tag --list "$module/v*" --sort=-v:refname)
+          newest=$(printf '%s\n' "$sorted" | head -1)
+          if [ "$newest" != "$tag" ]; then
+            echo "::error::expected $tag to be the newest tag for $module, found '${newest:-<none>}' — checkout is missing tag history" >&2
+            exit 1
+          fi
+
+          second=$(printf '%s\n' "$sorted" | sed -n '2p')
+          if [ -n "$second" ]; then
+            base="${second#"$module"/}"
+          else
+            # A real, documented gorelease outcome (-base=none), not a
+            # message this workflow invents: there is no prior version to
+            # diff against, and there will not be one for this module's first
+            # release no matter how long the proxy takes to catch up.
+            base="none"
+          fi
+
           go install golang.org/x/exp/cmd/gorelease@latest
-          gorelease > "$RUNNER_TEMP/apidiff.txt" 2>&1 || true
+          set +e
+          gorelease -base="$base" > "$RUNNER_TEMP/apidiff.txt" 2>&1
+          status=$?
+          set -e
           cat "$RUNNER_TEMP/apidiff.txt"
+          if [ "$status" -ne 0 ]; then
+            echo "::error::gorelease exited $status comparing against $base — see the output above" >&2
+            exit "$status"
+          fi
 
       - uses: actions/upload-artifact@v7
         with:
@@ -183,14 +230,27 @@ jobs:
 
       - name: Assemble release notes
         run: |
+          diff_file="$RUNNER_TEMP/artifacts/apidiff/apidiff.txt"
+
+          # A missing or empty artifact is a broken release, not a release
+          # with no diff to report (#53): verify already failed a non-zero
+          # gorelease, so the only way here is the upload step itself
+          # failing, and substituting "(no API diff available)" let that pass
+          # as a normal release with nobody the wiser. [ -s ] is true only
+          # when the file exists and is non-empty, covering both "missing"
+          # and "empty" in one check.
+          if [ ! -s "$diff_file" ]; then
+            echo "::error::$diff_file is missing or empty — the apidiff artifact upload must have failed" >&2
+            exit 1
+          fi
+
           notes="$RUNNER_TEMP/notes.md"
           {
             printf '## %s %s\n\n' \
               '${{ needs.resolve.outputs.module }}' \
               '${{ needs.resolve.outputs.version }}'
             printf '### API changes\n\n```\n'
-            cat "$RUNNER_TEMP/artifacts/apidiff/apidiff.txt" 2>/dev/null \
-              || echo "(no API diff available)"
+            cat "$diff_file"
             printf '```\n'
           } > "$notes"
           cat "$notes"

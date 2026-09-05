@@ -294,7 +294,9 @@ Pushing a matching tag runs `.github/workflows/release.yml`, which:
 - runs build, vet, tests and `govulncheck` **before** the release exists,
   because a tag is immutable once anyone has fetched it;
 - generates release notes from the real API diff with `gorelease` (NFR9), not
-  from memory;
+  from memory — against an explicit base version (this module's own previous
+  tag, or `none` for a first release), and fails the release rather than
+  publishing if `gorelease` cannot produce one (#53);
 - cross-compiles binaries for `cmd/` modules only;
 - checks the tag signature.
 
@@ -317,6 +319,9 @@ worth knowing rather than assuming.
 ## After the release
 
 - Confirm the workflow published what you expected, including the binaries.
-- Confirm the release notes contain a real API diff rather than
-  `(no API diff available)` — that string means `gorelease` failed and nobody
-  noticed.
+- A release existing at all now means `gorelease` exited zero against an
+  explicit base — a failure fails the workflow before publishing, rather than
+  a manual check catching it afterward (#53). A first release's notes
+  legitimately have no `## compatible changes` section, only a
+  suggested-version summary; that is `-base=none` working as documented, not
+  `gorelease` having failed silently.
