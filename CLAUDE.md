@@ -35,6 +35,26 @@ Lint (config in `.golangci.yml`, golangci-lint v2):
 (cd core && golangci-lint run ./...)
 ```
 
+## Definition of Done
+
+A change is not finished when it compiles. It is finished when all of these
+hold, for every module it touches:
+
+1. `go build ./...`, `go vet ./...`, and `go test -race ./...` all succeed in
+   each affected module (the per-module loop above) — a green build in one
+   module says nothing about another.
+2. `golangci-lint run ./...` passes in `core`.
+3. Any new guard, invariant, or counter has been seen to fail before it was
+   seen to pass. An assertion nobody has watched go red is not verified, it is
+   hoped — see "A check must fail when it cannot run" below.
+4. The non-negotiable invariants below still hold. A change that trades one of
+   them for convenience is not done; it is a new entry for
+   `docs/audit-log.md`.
+
+Fix the underlying issue rather than working around the check. Skipping a
+subtest, silencing a vet warning, or reaching for `--no-verify` do not make a
+task done — they make the next audit longer.
+
 ## Non-negotiable invariants
 
 These are decided, not open. Each is a defect if violated, and most were found
@@ -105,6 +125,17 @@ the expensive way — see [`docs/audit-log.md`](docs/audit-log.md).
     red, you do not know it is a check.
 - Secrets and credentials are held as masked values, never plain strings
   (NFR4, IR2).
+
+## Scope limits
+
+- One issue, fix, or refactor per change. Finding a second thing to fix while
+  you're already in the file is not a reason to fix it now — file it on the
+  board (see "Working on issues" below) and keep going on the one you were
+  given.
+- Don't fold a cosmetic change (formatting, renaming, reordering) into a
+  functional one. This is the same discipline "One subject per commit" already
+  requires at staging time, applied earlier — before the second subject gets
+  written, not just before it gets `git add`ed.
 
 ## Working on issues
 
