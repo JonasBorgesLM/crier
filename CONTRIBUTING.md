@@ -72,10 +72,12 @@ supersedes the old, not an edit:
 - **Until the first tag exists**, `main` simply tracks `develop`: there is no
   released state for it to hold yet, and a default branch showing an empty
   project is worse than one showing unreleased work.
-- The release's own commits — the `go.mod` edits that swap a local `replace`
-  for a published version, see [`RELEASING.md`](RELEASING.md) — are made on
-  `main` during the release, and `main` is merged back into `develop` when it
-  finishes.
+- The release's own commits — the `go.mod` edits that point a dependent module
+  at a published version, see [`RELEASING.md`](RELEASING.md) — reach `main`
+  through pull requests during the release, and `main` is merged back into
+  `develop` through a pull request when it finishes. Both branches require a
+  pull request and `CI OK`, admins included, so nothing in a release is a
+  direct push.
 
 That last step is not bookkeeping. Without it the two branches diverge in every
 dependent `go.mod`, which is the file the release exists to change — and `main`
