@@ -5,7 +5,7 @@ go 1.26
 require (
 	github.com/JonasBorgesLM/crier/core v0.3.0
 	github.com/JonasBorgesLM/crier/exporters/otlp v0.1.0
-	github.com/JonasBorgesLM/crier/receivers/http v0.1.0
+	github.com/JonasBorgesLM/crier/receivers/http v0.1.1
 	github.com/JonasBorgesLM/moat v0.2.0
 )
 
