@@ -62,25 +62,37 @@ so it is a checklist item rather than an assumption.
 
 ## Which branch
 
-**Tags are cut on `main`, and every commit in this procedure is made there.**
+**Tags are cut on `main`, and every commit in this procedure reaches `main`
+through a pull request.**
 
 `develop` is where work lands; `main` is what has been released, and it is what
 GitHub shows a visitor. Those being the same thing is deliberate — see
 [`CONTRIBUTING.md`](CONTRIBUTING.md#develop-and-main).
 
-So a release starts by bringing `main` up to date:
+**Why a pull request, not a push.** Both `main` and `develop` are protected:
+a pull request and the `CI OK` check are required, with no approval count, and
+the rule applies to admins too (`enforce_admins`). A direct `git push origin
+main` is rejected. This document used to say to push; the core v0.2.0 and
+v0.3.0 releases did, before the protection existed, and since #76 `main` has
+only moved through pull requests. It was caught when cutting
+`cmd/crierd/v0.1.1` (#82), which did not need to touch `main` at all.
+
+So a release starts by bringing `main` up to date with a release pull request,
+merged with a **merge commit** (not a squash, so `main` keeps `develop`'s
+history):
 
 ```bash
+gh pr create --base main --head develop --title "chore: release vX.Y.Z" \
+  --body "Release vX.Y.Z."
+gh pr merge --merge <number>     # once CI OK is green
 git checkout main && git pull --ff-only
-git merge --no-ff develop -m "Merge develop into main for the vX.Y.Z release"
-git push origin main
 ```
 
 and finishes by merging it back, which is step 4 below.
 
-**Push the commit before pushing the tag.** A tag pushed on its own carries its
-commit but moves no branch, leaving a release that points at a commit on no
-branch — recoverable, but confusing to everyone who looks later.
+**Tag only a commit that is already on `main`.** The merge commit, or a later
+one from a release pull request below. A tag pushed for a commit on no branch
+is recoverable, but confusing to everyone who looks later.
 
 ## The order
 
@@ -119,7 +131,9 @@ go: github.com/JonasBorgesLM/crier/core@v0.0.0-00010101000000-000000000000:
 needed here. `go mod tidy` afterwards does the resolving, against a graph that
 is now sound.
 
-Commit that, and only then tag:
+Commit that on a branch cut from `main`, merge it into `main` through a pull
+request (`gh pr create --base main`, merge commit, `CI OK` green), and only then
+tag the commit that is now on `main`:
 
 ```bash
 git tag -s exporters/otlp/v0.1.0 -m "exporters/otlp v0.1.0"
@@ -141,8 +155,9 @@ place.
 
 ### 3. `cmd/crierd` third
 
-It depends on all three. Drop every `replace`, require the published versions,
-verify, commit, tag — the same `go mod edit` shape as step 2, with three
+It depends on all three. Drop every `replace` (if any is left), require the
+published versions, verify, pull request into `main`, tag — the same `go mod
+edit` shape and the same pull-request route as step 2, with three
 `-dropreplace` and three `-require` flags.
 
 **`exporters/otlp/integration` keeps its `replace` directives.** It is
@@ -152,9 +167,13 @@ local development.
 
 ### 4. Merge back, and restore local resolution
 
+A pull request from `main` into `develop`, merged with a merge commit. The
+protection on `develop` rules out a direct push the same way:
+
 ```bash
-git checkout develop
-git merge --no-ff main -m "Merge main back after the vX.Y.Z release"
+gh pr create --base develop --head main --title "chore: merge main back after the vX.Y.Z release" \
+  --body "Merge back after vX.Y.Z."
+gh pr merge --merge <number>     # once CI OK is green
 ```
 
 Without this, `develop` and `main` differ in every dependent `go.mod` — the
