@@ -1,24 +1,29 @@
-# gateway-auth: audit events, and identity at the edge
+# usher: audit events, and identity at the edge
 
-**IR3 and IR7.** `gateway-auth` emits audit events — failed logins, rate-limit
-hits, rejected tokens — and crier ingests them. It is also the reverse proxy
-crier can run behind.
+**IR3 and IR7.** [`usher`](https://github.com/JonasBorgesLM/usher), the OAuth
+2.1/OIDC authorization server and gateway, emits audit events — failed
+logins, rate-limit hits, rejected tokens — and crier ingests them. It is also
+the reverse proxy crier can run behind. The requirements and ADRs here that
+predate it call it `gateway-auth`, its placeholder name.
 
-This is the integration that makes ADR-0008 concrete: `gateway-auth` solves an
+This is the integration that makes ADR-0008 concrete: usher solves an
 authentication problem crier genuinely has, rather than two services merely
 sharing a compose file.
 
-This is a design, not shipped code — `gateway-auth` is not a dependency here.
+usher is not a dependency here. The emitting side ships in usher itself
+(`internal/audit`, usher's RI-03 and ADR-0017), and the trusted-proxy side
+is configuration of this repository's receiver.
 
 ## Two relationships, not one
 
 ### 1. As a source of audit events (IR3)
 
-`gateway-auth` posts to `/v1/logs` like any other client, authenticating with
-its own credential:
+usher posts to `/v1/logs` like any other client, authenticating with its own
+credential. The source name is whatever its `USHER_CRIER_SERVICE_NAME` is set
+to:
 
 ```
-Authorization: Bearer gateway-auth:<credential>
+Authorization: Bearer usher:<credential>
 ```
 
 Audit events are the case that justifies several of crier's defaults:
@@ -38,15 +43,22 @@ Audit events are the case that justifies several of crier's defaults:
 
 ### 2. As the reverse proxy in front of crier (IR7)
 
-Deployed behind `gateway-auth`, crier does not authenticate the caller itself:
-the gateway already did, and asserts the principal in a header.
+Deployed behind usher, crier does not authenticate the caller itself: the
+gateway already did, and asserts the principal in a header. usher's identity
+contract (its RI-04) injects `X-Auth-Subject`, `X-Auth-Client` and
+`X-Auth-Scope` after stripping any the client sent. The calling client is
+the source, so `X-Auth-Client` is the header to name:
 
 ```go
 auth, err := httpreceiver.NewTrustedProxy(httpreceiver.TrustedProxyConfig{
     TrustedCIDRs:   []string{"10.4.0.0/16"},   // the gateway's addresses
-    IdentityHeader: "X-Authenticated-Source",
+    IdentityHeader: "X-Auth-Client",
 })
 ```
+
+usher's RI-04 states the same condition from its side: a consumer may rely
+on these headers only when it restricts the peer allowed to set them to the
+gateway's addresses. That is what `TrustedCIDRs` is here.
 
 **This mode is never the default and cannot become one by omission.** A header
 is identity only if the peer that set it is one crier was told to believe; from
@@ -63,11 +75,11 @@ that has the tests for it.
 
 Whichever mode is in use, the identity attached to a record comes from the
 authenticated principal and never from the request body (ADR-0008, finding
-D-2). A client asserting `service.name: gateway-auth` has that field
+D-2). A client asserting `service.name: usher` has that field
 overwritten and the discrepancy counted — the record is still accepted, just
 not on the caller's terms.
 
 That matters most for an audit-event source. If a caller could label its own
-records as coming from `gateway-auth`, anyone able to reach the ingestion
+records as coming from usher, anyone able to reach the ingestion
 endpoint could forge audit history, which is a worse outcome than losing it.
 `TestClientAssertedIdentityIsOverwrittenAndCounted` is the test.

@@ -225,6 +225,7 @@ to find the file; use the file to decide.
 ## Ecosystem
 
 crier is one of several related projects and reuses them deliberately rather
-than reimplementing: `moat` (middleware, `secret.Value` masking),
-`gateway-auth` (audit-event source, reverse-proxy identity), `task-api`
-(embedded-library consumer), `security-scanner` (receiver hardening).
+than reimplementing: `moat` (middleware, `secret.Value` masking), `usher`
+(audit-event source, reverse-proxy identity; `gateway-auth` in the older
+documents), `task-api` (embedded-library consumer), `security-scanner`
+(receiver hardening).
