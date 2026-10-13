@@ -12,7 +12,7 @@ model, and exports them to external observability backends through a pluggable
 `Exporter` interface. It is designed to work both as an embedded library and as
 a standalone sidecar process from the same core engine, and to integrate
 naturally with the author's existing Go security/portfolio ecosystem (`moat`,
-`gateway-auth`, `task-api`, `security-scanner`).
+`usher`, `task-api`, `security-scanner`).
 
 ## Goals
 
@@ -174,7 +174,8 @@ Threats explicitly considered (detailed in ADR-0008 and ADR-0010):
   documented possibility.
 - **IR2** Redaction (FR7) and credential handling (NFR4) reuse `moat`'s
   `secret.Value` masking philosophy for consistency across the two projects.
-- **IR3** Provide a documented example of `gateway-auth` emitting audit
+- **IR3** Provide a documented example of `usher` (the OAuth 2.1/OIDC gateway,
+  called `gateway-auth` before it existed) emitting audit
   events (failed logins, rate-limit hits, rejected tokens) consumed by
   `crier`.
 - **IR4** Provide a documented example of `task-api` using `crier` in
@@ -202,7 +203,7 @@ Threats explicitly considered (detailed in ADR-0008 and ADR-0010):
   >
   > `security-scanner` remains the right tool for the API surfaces it was built
   > for. The mismatch is with this target, not with the tool.
-- **IR7** Support deployment behind `gateway-auth` as a reverse proxy, where
+- **IR7** Support deployment behind `usher` as a reverse proxy, where
   `crier` derives source identity from the gateway-asserted identity
   instead of client-asserted fields. This mode is strictly opt-in and
   requires explicit trusted-proxy configuration (ADR-0008).

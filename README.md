@@ -306,7 +306,7 @@ in each module.
 - [Requirements](REQUIREMENTS.md) — functional, non-functional, ecosystem
 - [Architecture Decision Records](docs/adr/README.md) — 21 decisions, with amendments
 - [Benchmarks](docs/benchmarks.md) — hot-path measurements and what they found
-- [Ecosystem integrations](docs/integrations/README.md) — `task-api`, `gateway-auth`, `moat`
+- [Ecosystem integrations](docs/integrations/README.md) — `task-api`, `usher`, `moat`
 - [Audit log](docs/audit-log.md) — review passes, findings, and who performed them
 - [Releasing](RELEASING.md) — the tag order, and why it is not optional
 - [Security probes](docs/security/probe-threats.sh) — the threat model, exercised against a running receiver
